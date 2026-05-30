@@ -1,0 +1,1957 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Undercover Bot Dashboard</title>
+    <!-- Telegram SDK -->
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <!-- Adsgram SDK -->
+    <script src="https://sad.adsgram.ai/js/sad.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #4facfe;
+            --primary-gradient: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            --bg-gradient: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+            --glass-bg: rgba(255, 255, 255, 0.07);
+            --glass-border: rgba(255, 255, 255, 0.1);
+            --text: #ffffff;
+            --hint: #a8a8b3;
+            --success: #34c759;
+            --danger: #ff3b30;
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background: var(--bg-gradient);
+            background-attachment: fixed;
+            color: var(--text);
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* Glassmorphism Utilities */
+        .glass-panel {
+            background: var(--glass-bg);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid var(--glass-border);
+            border-radius: 20px;
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.2);
+        }
+
+        /* Tabs (Bottom Bar) */
+        .tab-bar {
+            display: flex;
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            right: 20px;
+            padding: 10px;
+            justify-content: space-around;
+            z-index: 100;
+            border-radius: 30px;
+        }
+
+        .tab-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            color: var(--hint);
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            padding: 8px 20px;
+            border-radius: 20px;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .tab-item.active {
+            color: #fff;
+            background: rgba(255, 255, 255, 0.15);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            transform: translateY(-2px);
+        }
+
+        .tab-icon {
+            font-size: 24px;
+            margin-bottom: 4px;
+            filter: drop-shadow(0 2px 4px rgba(0,0,0,0.2));
+        }
+
+        /* Content */
+        .content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 24px;
+            padding-bottom: 120px;
+        }
+
+        .view { 
+            display: none; 
+            animation: fadeIn 0.4s ease-out forwards;
+        }
+        .view.active { display: block; }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(15px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Stats Cards */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            margin-bottom: 30px;
+        }
+
+        .stat-card {
+            padding: 12px 6px;
+            text-align: center;
+            transition: transform 0.2s;
+        }
+        
+        .stat-card:active {
+            transform: scale(0.96);
+        }
+
+        .stat-val {
+            font-size: 20px;
+            font-weight: 800;
+            display: block;
+            margin-top: 6px;
+            background: var(--primary-gradient);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .stat-label {
+            font-size: 10px;
+            color: var(--hint);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            font-weight: 600;
+        }
+
+        /* Header */
+        .header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 30px;
+            background: rgba(0,0,0,0.2);
+            padding: 16px;
+            border-radius: 24px;
+            border: 1px solid rgba(255,255,255,0.05);
+        }
+
+        .avatar {
+            width: 56px;
+            height: 56px;
+            background: var(--primary-gradient);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 28px;
+            margin-right: 16px;
+            box-shadow: 0 0 20px rgba(79, 172, 254, 0.4);
+            flex-shrink: 0;
+            color: white;
+            font-weight: 700;
+        }
+
+        .user-name {
+            font-size: 22px;
+            font-weight: 700;
+            margin: 0 0 4px 0;
+            letter-spacing: -0.5px;
+        }
+
+        .user-rank {
+            font-size: 14px;
+            color: #00f2fe;
+            margin: 0;
+            font-weight: 500;
+        }
+
+        /* Ad Section */
+        .ad-card {
+            padding: 30px 24px;
+            text-align: center;
+            margin-bottom: 24px;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .ad-card::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: 4px;
+            background: var(--primary-gradient);
+        }
+
+        .ad-icon {
+            font-size: 56px;
+            margin-bottom: 12px;
+            filter: drop-shadow(0 4px 10px rgba(0,0,0,0.3));
+        }
+
+        .ad-title {
+            font-size: 24px;
+            font-weight: 800;
+            margin: 0 0 8px 0;
+        }
+
+        .ad-desc {
+            color: var(--hint);
+            font-size: 15px;
+            line-height: 1.5;
+            margin-bottom: 24px;
+        }
+
+        /* Buttons */
+        .btn {
+            background: var(--primary-gradient);
+            color: white;
+            border: none;
+            padding: 16px 24px;
+            border-radius: 16px;
+            font-weight: 700;
+            font-size: 17px;
+            width: 100%;
+            cursor: pointer;
+            box-shadow: 0 8px 20px rgba(79, 172, 254, 0.3);
+            transition: all 0.2s;
+            font-family: inherit;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn:active {
+            transform: scale(0.96);
+            box-shadow: 0 4px 10px rgba(79, 172, 254, 0.2);
+        }
+
+        .btn:disabled { 
+            opacity: 0.6; 
+            cursor: not-allowed;
+            transform: none;
+            background: #555;
+            box-shadow: none;
+        }
+
+        /* Leaderboard Segmented Control (Top Tabs) */
+        .seg-control {
+            display: flex;
+            background: rgba(0,0,0,0.3);
+            border-radius: 14px;
+            padding: 4px;
+            margin-bottom: 20px;
+        }
+        .seg-btn {
+            flex: 1;
+            text-align: center;
+            padding: 10px;
+            border-radius: 10px;
+            font-size: 15px;
+            font-weight: 600;
+            color: var(--hint);
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .seg-btn.active {
+            background: rgba(255,255,255,0.15);
+            color: #fff;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+        }
+
+        /* Leaderboard List */
+        .lb-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .lb-item {
+            display: flex;
+            align-items: center;
+            padding: 14px;
+            cursor: pointer;
+            transition: transform 0.2s, background 0.2s;
+        }
+        .lb-item:active {
+            transform: scale(0.98);
+            background: rgba(255,255,255,0.15);
+        }
+        .lb-rank {
+            font-size: 20px;
+            font-weight: 800;
+            width: 36px;
+            text-align: center;
+            color: var(--hint);
+            margin-right: 12px;
+        }
+        .lb-item[data-rank="1"] .lb-rank { color: #FFD700; font-size: 26px; }
+        .lb-item[data-rank="2"] .lb-rank { color: #C0C0C0; font-size: 24px; }
+        .lb-item[data-rank="3"] .lb-rank { color: #CD7F32; font-size: 22px; }
+        
+        .lb-info {
+            flex: 1;
+        }
+        .lb-name {
+            font-size: 16px;
+            font-weight: 700;
+            margin: 0 0 4px 0;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 150px;
+        }
+        .lb-val {
+            font-size: 14px;
+            color: #00f2fe;
+            font-weight: 600;
+        }
+
+        /* Profile Modal */
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.6);
+            backdrop-filter: blur(5px);
+            -webkit-backdrop-filter: blur(5px);
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+        }
+        .modal-overlay.active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+        .modal-content {
+            background: var(--bg-gradient);
+            width: 85%;
+            max-width: 340px;
+            border-radius: 24px;
+            padding: 30px 24px;
+            position: relative;
+            transform: translateY(30px);
+            transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .modal-overlay.active .modal-content {
+            transform: translateY(0);
+        }
+        .modal-close {
+            position: absolute;
+            top: 15px; right: 15px;
+            background: rgba(255,255,255,0.1);
+            border: none; color: #fff;
+            width: 32px; height: 32px;
+            border-radius: 16px;
+            font-size: 18px;
+            cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+        }
+        
+        .modal-avatar {
+            width: 80px; height: 80px;
+            margin: 0 auto 15px auto;
+            font-size: 36px;
+        }
+        .modal-name {
+            text-align: center;
+            font-size: 26px;
+            font-weight: 800;
+            margin: 0 0 5px 0;
+        }
+        .modal-rank {
+            text-align: center;
+            color: #00f2fe;
+            font-size: 15px;
+            font-weight: 600;
+            margin-bottom: 25px;
+        }
+        .modal-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+        }
+        .modal-stat {
+            background: rgba(0,0,0,0.2);
+            padding: 12px;
+            border-radius: 12px;
+            text-align: center;
+        }
+
+        /* Animations */
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+        .pulse { animation: pulse 2s infinite; }
+        
+        @keyframes bounce {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
+        .bounce { animation: bounce 2s infinite ease-in-out; }
+
+        .game-item {
+            padding: 16px;
+            display: flex;
+            align-items: center;
+            margin-bottom: 12px;
+            transition: transform 0.2s, background 0.2s;
+        }
+        .game-item:active {
+            transform: translateX(4px);
+            background: rgba(255,255,255,0.1);
+        }
+        .game-icon {
+            font-size: 32px;
+            margin-right: 16px;
+            background: rgba(0,0,0,0.2);
+            width: 50px; height: 50px;
+            display: flex; align-items: center; justify-content: center;
+            border-radius: 14px;
+        }
+        .game-info h4 { margin: 0 0 4px 0; font-size: 17px; font-weight: 700; }
+        .game-info p { margin: 0; font-size: 13px; color: var(--hint); }
+
+        .hidden { display: none !important; }
+
+        .loading-spinner {
+            text-align: center;
+            padding: 40px;
+            color: var(--primary);
+            font-weight: 600;
+            animation: pulse 1.5s infinite;
+        }
+
+        /* Premium Spin Wheel */
+        .wheel-container {
+            position: relative;
+            width: 300px;
+            height: 300px;
+            margin: 0 auto 30px auto;
+        }
+        .wheel {
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            background: conic-gradient(from -90deg,
+                #1a1a2e 0deg 35.5deg, #111 35.5deg 36deg,
+                #4facfe 36deg 71.5deg, #111 71.5deg 72deg,
+                #1a1a2e 72deg 107.5deg, #111 107.5deg 108deg,
+                #9c27b0 108deg 143.5deg, #111 143.5deg 144deg,
+                #1a1a2e 144deg 179.5deg, #111 179.5deg 180deg,
+                #ff3b30 180deg 215.5deg, #111 215.5deg 216deg,
+                #1a1a2e 216deg 251.5deg, #111 251.5deg 252deg,
+                #34c759 252deg 287.5deg, #111 287.5deg 288deg,
+                #1a1a2e 288deg 323.5deg, #111 323.5deg 324deg,
+                #ffd700 324deg 359.5deg, #111 359.5deg 360deg
+            );
+            border: 8px solid #222;
+            box-shadow: 0 0 35px rgba(0,0,0,0.8), inset 0 0 20px rgba(0,0,0,0.8);
+            transition: transform 5s cubic-bezier(0.15, 0.85, 0.15, 1);
+        }
+        .wheel-pointer {
+            position: absolute;
+            top: -20px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 0; 
+            height: 0; 
+            border-left: 20px solid transparent;
+            border-right: 20px solid transparent;
+            border-top: 40px solid #ffd700;
+            filter: drop-shadow(0 4px 6px rgba(0,0,0,0.8));
+            z-index: 10;
+            transform-origin: 50% 0%;
+        }
+        .wheel-pointer.tick {
+            animation: pointer-click 0.15s ease-out;
+        }
+        .wheel-center {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 54px;
+            height: 54px;
+            background: radial-gradient(circle, #ffd700, #b78708, #111);
+            border-radius: 50%;
+            border: 4px solid #ffd700;
+            box-shadow: 0 0 15px rgba(0,0,0,0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            z-index: 5;
+        }
+        .wheel-lights {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+            z-index: 3;
+        }
+        .light {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 8px;
+            height: 8px;
+            margin-top: -4px;
+            margin-left: -4px;
+            border-radius: 50%;
+            background: #fff;
+            box-shadow: 0 0 6px #fff, 0 0 12px #ffd700;
+            animation: light-flash 0.6s infinite alternate;
+        }
+        .light:nth-child(even) {
+            animation-delay: 0.3s;
+            background: #ffd700;
+        }
+        @keyframes light-flash {
+            0% { opacity: 0.4; filter: brightness(0.8); }
+            100% { opacity: 1; filter: brightness(1.3); box-shadow: 0 0 10px #ffd700, 0 0 20px #ffd700; }
+        }
+        @keyframes pointer-click {
+            0% { transform: translateX(-50%) rotate(0deg); }
+            50% { transform: translateX(-50%) rotate(-15deg); }
+            100% { transform: translateX(-50%) rotate(0deg); }
+        }
+        .slice-text {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 50%;
+            height: 24px;
+            margin-top: -12px;
+            transform-origin: 0 50%;
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            padding-right: 25px;
+            box-sizing: border-box;
+            font-size: 18px;
+            font-weight: 800;
+            color: #fff;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+            user-select: none;
+        }
+
+        /* 10 slices, 36 degrees each. Center is i * 36 + 18 */
+        .slice-text[data-i="0"] { transform: rotate(18deg); }
+        .slice-text[data-i="1"] { transform: rotate(54deg); }
+        .slice-text[data-i="2"] { transform: rotate(90deg); }
+        .slice-text[data-i="3"] { transform: rotate(126deg); }
+        .slice-text[data-i="4"] { transform: rotate(162deg); }
+        .slice-text[data-i="5"] { transform: rotate(198deg); }
+        .slice-text[data-i="6"] { transform: rotate(234deg); }
+        .slice-text[data-i="7"] { transform: rotate(270deg); }
+        .slice-text[data-i="8"] { transform: rotate(306deg); }
+        .slice-text[data-i="9"] { 
+            transform: rotate(342deg); 
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            padding-right: 16px;
+        }
+        .slice-img {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            border: 2px solid #ffd700;
+            box-shadow: 0 0 10px #ffd700;
+            transform: rotate(-342deg); /* Counter-rotate to stay upright */
+            object-fit: cover;
+        }
+
+        /* Sleek Minimal Grand Prize Tag */
+        .grand-prize-tag {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            margin: 20px auto 25px auto;
+            padding: 12px 20px;
+            max-width: 280px;
+            border-radius: 30px;
+            background: rgba(255, 215, 0, 0.08);
+            border: 1px solid rgba(255, 215, 0, 0.3);
+            box-shadow: 0 0 15px rgba(255, 215, 0, 0.1), inset 0 0 10px rgba(255, 215, 0, 0.05);
+            font-size: 14px;
+            color: #fff;
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+        }
+        .prize-crown {
+            font-size: 20px;
+            animation: crown-float 2s ease-in-out infinite alternate;
+        }
+        @keyframes crown-float {
+            0% { transform: translateY(0) scale(1); }
+            100% { transform: translateY(-3px) scale(1.1); }
+        }
+
+        /* Player Shop CSS */
+        .shop-controls {
+            padding: 12px;
+            margin-bottom: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .search-box input {
+            width: 100%;
+            padding: 10px 14px;
+            border-radius: 12px;
+            background: rgba(0, 0, 0, 0.25);
+            border: 1px solid var(--glass-border);
+            color: #fff;
+            font-family: inherit;
+            box-sizing: border-box;
+            font-size: 14px;
+        }
+        .search-box input:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+        .filter-section-title {
+            font-size: 11px;
+            color: var(--hint);
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-top: 4px;
+            text-align: left;
+        }
+        .chips-container {
+            display: flex;
+            gap: 8px;
+            overflow-x: auto;
+            white-space: nowrap;
+            padding: 4px 0;
+            scrollbar-width: none; /* Firefox */
+        }
+        .chips-container::-webkit-scrollbar {
+            display: none; /* Safari and Chrome */
+        }
+        .role-chip {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--glass-border);
+            color: var(--hint);
+            padding: 6px 12px;
+            border-radius: 99px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            outline: none;
+        }
+        .role-chip:active {
+            transform: scale(0.95);
+        }
+        .role-chip.active {
+            background: var(--primary-gradient);
+            border-color: transparent;
+            color: #fff;
+            box-shadow: 0 0 10px rgba(79, 172, 254, 0.3);
+        }
+        .filter-meta-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 6px;
+            gap: 12px;
+        }
+        .ovr-filter-wrap {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .meta-label {
+            font-size: 12px;
+            color: var(--hint);
+            font-weight: 600;
+        }
+        .ovr-filter-wrap select {
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid var(--glass-border);
+            color: #fff;
+            padding: 4px 8px;
+            border-radius: 8px;
+            font-size: 12px;
+            font-weight: 700;
+            outline: none;
+            cursor: pointer;
+        }
+        .ovr-filter-wrap select:focus {
+            border-color: var(--primary);
+        }
+        .sort-wrap {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .sort-chips {
+            display: flex;
+            gap: 4px;
+            background: rgba(0, 0, 0, 0.2);
+            padding: 2px;
+            border-radius: 8px;
+            border: 1px solid var(--glass-border);
+        }
+        .sort-chip {
+            background: transparent;
+            border: none;
+            color: var(--hint);
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.2s;
+            outline: none;
+        }
+        .sort-chip.active {
+            background: rgba(79, 172, 254, 0.15);
+            color: var(--primary);
+        }
+        .player-img-container {
+            position: relative;
+            width: 70px;
+            height: 70px;
+            margin: 8px auto 6px auto;
+        }
+        .player-img {
+            width: 70px;
+            height: 70px;
+            border-radius: 50%;
+            object-fit: cover;
+            border: 2px solid rgba(255, 255, 255, 0.15);
+            background: rgba(0, 0, 0, 0.2);
+            box-sizing: border-box;
+        }
+        .player-img-container.gold .player-img {
+            border-color: #ffd700;
+            box-shadow: 0 0 8px rgba(255, 215, 0, 0.3);
+        }
+        .player-img-container.legendary .player-img {
+            border-color: #ff007f;
+            box-shadow: 0 0 12px rgba(255, 0, 127, 0.4);
+        }
+        .player-placeholder-avatar {
+            width: 70px;
+            height: 70px;
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin: 0 auto;
+            border: 2px solid rgba(255, 255, 255, 0.15);
+            box-sizing: border-box;
+        }
+        .player-placeholder-avatar span {
+            font-size: 28px;
+            font-weight: 800;
+        }
+        .player-role-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 9px;
+            font-weight: 800;
+            text-transform: uppercase;
+            margin-top: 6px;
+        }
+        .player-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+            margin-top: 16px;
+        }
+        .player-card {
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 12px;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+            transition: transform 0.2s, box-shadow 0.2s;
+            min-height: 175px;
+        }
+        .player-card:active {
+            transform: scale(0.97);
+        }
+        .player-badge-container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 6px;
+        }
+        .player-rating {
+            background: var(--primary-gradient);
+            color: #fff;
+            font-weight: 800;
+            padding: 2px 8px;
+            border-radius: 8px;
+            font-size: 13px;
+        }
+        .player-tier {
+            font-size: 9px;
+            text-transform: uppercase;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            padding: 2px 6px;
+            border-radius: 6px;
+        }
+        .tier-normal {
+            background: rgba(255, 255, 255, 0.1);
+            color: #ccc;
+        }
+        .tier-gold {
+            background: rgba(255, 215, 0, 0.2);
+            color: #ffd700;
+            border: 1px solid rgba(255, 215, 0, 0.3);
+        }
+        .tier-legendary {
+            background: rgba(255, 0, 127, 0.2);
+            color: #ff007f;
+            border: 1px solid rgba(255, 0, 127, 0.3);
+        }
+        
+        /* Card variations by tier */
+        .player-card.card-gold {
+            border: 1px solid rgba(255, 215, 0, 0.4);
+            box-shadow: 0 4px 15px rgba(255, 215, 0, 0.15);
+        }
+        .player-card.card-legendary {
+            border: 1px solid rgba(255, 0, 127, 0.4);
+            box-shadow: 0 4px 20px rgba(255, 0, 127, 0.2);
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.07) 0%, rgba(255, 0, 127, 0.04) 100%);
+        }
+        
+        .player-card-name {
+            font-size: 15px;
+            font-weight: 700;
+            margin: 4px 0 2px 0;
+            color: #fff;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .player-sub {
+            font-size: 11px;
+            color: var(--hint);
+            margin-bottom: 12px;
+        }
+        .player-buy-btn {
+            background: var(--primary-gradient);
+            border: none;
+            color: #fff;
+            font-weight: 700;
+            padding: 8px 10px;
+            border-radius: 10px;
+            font-size: 12px;
+            width: 100%;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 4px;
+            box-shadow: 0 4px 10px rgba(79, 172, 254, 0.2);
+        }
+        .player-buy-btn:active {
+            transform: scale(0.95);
+        }
+        .player-buy-btn.owned {
+            background: rgba(52, 199, 89, 0.15) !important;
+            border: 1px solid var(--success) !important;
+            color: var(--success) !important;
+            cursor: default;
+            pointer-events: none;
+            box-shadow: none !important;
+        }
+
+        /* Floating Animation */
+        @keyframes float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
+        .float-animation {
+            animation: float 2.5s ease-in-out infinite;
+        }
+
+        /* Responsive Tab Bar for 5 items */
+        @media (max-width: 400px) {
+            .tab-bar {
+                left: 10px;
+                right: 10px;
+                padding: 6px;
+                bottom: 12px;
+            }
+            .tab-item {
+                padding: 6px 8px;
+                font-size: 10px;
+            }
+            .tab-icon {
+                font-size: 20px;
+                margin-bottom: 2px;
+            }
+        }
+
+    </style>
+</head>
+<body>
+    <div class="content">
+        <!-- Dashboard View -->
+        <div id="view-home" class="view active">
+            <div class="header">
+                <div class="avatar" id="user-initial">?</div>
+                <div>
+                    <h1 class="user-name" id="user-name">Loading...</h1>
+                    <p class="user-rank" id="user-rank">Global Rank: #--</p>
+                </div>
+            </div>
+
+            <div class="stats-grid">
+                <div class="stat-card glass-panel">
+                    <span class="stat-label">Team Rating</span>
+                    <span class="stat-val" id="stat-rating">--</span>
+                </div>
+                <div class="stat-card glass-panel">
+                    <span class="stat-label">Total Coins</span>
+                    <span class="stat-val" id="stat-coins">--</span>
+                </div>
+                <div class="stat-card glass-panel">
+                    <span class="stat-label">Matches Won</span>
+                    <span class="stat-val" id="stat-wins">--</span>
+                </div>
+            </div>
+
+            <h3 style="font-size: 18px; margin: 0 0 16px 4px;">🕹️ Available Games</h3>
+            <div class="game-item glass-panel">
+                <div class="game-icon">🕵️‍♂️</div>
+                <div class="game-info">
+                    <h4>Undercover</h4>
+                    <p>Find the impostor among you!</p>
+                </div>
+            </div>
+            <div class="game-item glass-panel">
+                <div class="game-icon">🔫</div>
+                <div class="game-info">
+                    <h4>Mafia</h4>
+                    <p>Roles, strategy, and deception.</p>
+                </div>
+            </div>
+            <div class="game-item glass-panel">
+                <div class="game-icon">🃏</div>
+                <div class="game-info">
+                    <h4>Blackjack</h4>
+                    <p>Beat the dealer to win coins.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Shop View -->
+        <div id="view-shop" class="view">
+            <div style="text-align: center; margin-bottom: 16px; margin-top: 10px;">
+                <h1 style="margin: 0 0 4px 0; font-size: 28px;">Player Shop</h1>
+                <p style="color: var(--hint); margin: 0; font-size: 14px;">Directly buy players using your coins</p>
+            </div>
+
+            <!-- Cricket / Football Toggle -->
+            <div class="seg-control" style="margin-bottom: 12px;">
+                <div class="seg-btn active" id="shop-tab-cricket" onclick="switchShopSport('cricket')">🏏 Cricket</div>
+                <div class="seg-btn" id="shop-tab-football" onclick="switchShopSport('football')">⚽ Football</div>
+            </div>
+
+            <!-- Controls (Search & Filters) -->
+            <div class="shop-controls glass-panel">
+                <div class="search-box">
+                    <input type="text" id="shop-search" placeholder="🔍 Search player or country..." oninput="renderShop()">
+                </div>
+                
+                <div class="filter-section-title">Filter by Role</div>
+                <div class="chips-container" id="shop-role-chips">
+                    <!-- Dynamic role chips populated via script -->
+                </div>
+
+                <div class="filter-meta-row">
+                    <div class="ovr-filter-wrap">
+                        <span class="meta-label">OVR:</span>
+                        <select id="shop-filter-ovr" onchange="renderShop()">
+                            <option value="">All</option>
+                        </select>
+                    </div>
+                    <div class="sort-wrap">
+                        <span class="meta-label">Sort:</span>
+                        <div class="sort-chips" id="shop-sort-chips">
+                            <button class="sort-chip active" data-sort="ovr" onclick="setShopSort('ovr', this)">OVR</button>
+                            <button class="sort-chip" data-sort="price" onclick="setShopSort('price', this)">Price</button>
+                            <button class="sort-chip" data-sort="name" onclick="setShopSort('name', this)">Name</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Loading indicator -->
+            <div id="shop-loading" class="loading-spinner">Loading Shop...</div>
+
+            <!-- Grid container for player cards -->
+            <div id="shop-grid" class="player-grid hidden"></div>
+        </div>
+
+        <!-- Leaderboard View -->
+        <div id="view-leaderboard" class="view">
+            <div style="text-align: center; margin-bottom: 24px; margin-top: 10px;">
+                <h1 style="margin: 0 0 8px 0; font-size: 28px;">Global Rankings</h1>
+                <p style="color: var(--hint); margin: 0; font-size: 15px;">Top players in the Undercover Bot.</p>
+            </div>
+
+            <div class="seg-control">
+                <div class="seg-btn active" id="seg-rating" onclick="loadLeaderboard('rating')">📈 Rating</div>
+                <div class="seg-btn" id="seg-wins" onclick="loadLeaderboard('wins')">🏆 Wins</div>
+                <div class="seg-btn" id="seg-coins" onclick="loadLeaderboard('coins')">💰 Coins</div>
+            </div>
+
+            <div id="lb-loading" class="loading-spinner">Fetching Data...</div>
+            <div id="lb-container" class="lb-list hidden"></div>
+        </div>
+
+        <!-- Spin View -->
+        <div id="view-spin" class="view">
+            <div style="text-align: center; margin-bottom: 20px; margin-top: 10px;">
+                <h1 style="margin: 0 0 8px 0; font-size: 28px;">Lucky Spin</h1>
+                <p style="color: var(--hint); margin: 0; font-size: 15px;">Spin the wheel to win the Grand Prize!</p>
+            </div>
+
+            <div class="wheel-container">
+                <div class="wheel-pointer"></div>
+                <div class="wheel-lights">
+                    <div class="light" style="transform: rotate(0deg) translate(146px);"></div>
+                    <div class="light" style="transform: rotate(36deg) translate(146px);"></div>
+                    <div class="light" style="transform: rotate(72deg) translate(146px);"></div>
+                    <div class="light" style="transform: rotate(108deg) translate(146px);"></div>
+                    <div class="light" style="transform: rotate(144deg) translate(146px);"></div>
+                    <div class="light" style="transform: rotate(180deg) translate(146px);"></div>
+                    <div class="light" style="transform: rotate(216deg) translate(146px);"></div>
+                    <div class="light" style="transform: rotate(252deg) translate(146px);"></div>
+                    <div class="light" style="transform: rotate(288deg) translate(146px);"></div>
+                    <div class="light" style="transform: rotate(324deg) translate(146px);"></div>
+                </div>
+                <div class="wheel" id="spin-wheel">
+                    <div class="slice-text" data-i="0">100</div>
+                    <div class="slice-text" data-i="1">500</div>
+                    <div class="slice-text" data-i="2">100</div>
+                    <div class="slice-text" data-i="3">1k</div>
+                    <div class="slice-text" data-i="4">100</div>
+                    <div class="slice-text" data-i="5">2k</div>
+                    <div class="slice-text" data-i="6">100</div>
+                    <div class="slice-text" data-i="7">500</div>
+                    <div class="slice-text" data-i="8">100</div>
+                    <div class="slice-text" data-i="9">
+                        <img class="slice-img" src="/assets/players/shreyas_iyer.jpg" alt="Iyer">
+                    </div>
+                </div>
+                <div class="wheel-center">⭐</div>
+            </div>
+
+            <!-- Premium Grand Prize Showcase Tag -->
+            <div class="grand-prize-tag">
+                <span class="prize-crown">👑</span>
+                <span class="prize-tag-text">Grand Prize: <b>Shreyas Iyer</b> (86 OVR Batsman)</span>
+            </div>
+
+            <div style="display: flex; flex-direction: column; gap: 12px; margin-top: 12px;">
+                <button class="btn pulse" id="free-spin-btn" onclick="executeSpin(false)">
+                    <span>🎁 Spin for Free</span>
+                </button>
+                <button class="btn" id="ad-spin-btn" style="background: rgba(255,255,255,0.1); border: 1px solid var(--glass-border);" onclick="executeSpin(true)">
+                    <span>📺 Watch Ad to Spin</span>
+                </button>
+            </div>
+            
+            <div id="spin-status" style="text-align: center; font-size: 13px; margin-top: 16px; color: var(--hint); font-weight: 600;"></div>
+        </div>
+
+        <!-- Drop View -->
+        <div id="view-drop" class="view">
+            <div style="text-align: center; margin-bottom: 20px; margin-top: 10px;">
+                <h1 style="margin: 0 0 8px 0; font-size: 28px;">Mystery Drop</h1>
+                <p style="color: var(--hint); margin: 0; font-size: 15px;">Claim a mystery crate filled with random coins!</p>
+            </div>
+
+            <div class="drop-container glass-panel" style="text-align: center; padding: 32px 24px; margin-top: 20px; border-radius: 20px;">
+                <!-- Crate Area -->
+                <div id="ad-container">
+                    <div class="float-animation" style="font-size: 80px; margin-bottom: 16px; display: inline-block;">🎁</div>
+                    <h3 style="margin: 0 0 8px 0; font-size: 20px; color: #fff;">Mystery Coin Crate</h3>
+                    <p style="color: var(--hint); font-size: 14px; line-height: 1.5; margin-bottom: 24px; max-width: 320px; margin-left: auto; margin-right: auto;">
+                        Watch a short video ad to claim a random reward between <b style="color: #00f2fe;">300 to 5,000 coins</b>! Luck is on your side today.
+                    </p>
+                    
+                    <button class="btn pulse" id="watch-btn" style="width: 100%; padding: 14px; font-size: 16px; font-weight: 700; border-radius: 12px; transition: all 0.2s;">
+                        <span>📺 Watch & Claim Drop</span>
+                    </button>
+                    
+                    <div id="status" style="margin-top: 16px; font-size: 13px; color: var(--hint); font-weight: 600;">Ready to unlock!</div>
+                </div>
+
+                <!-- Success Box -->
+                <div id="success-box" class="hidden">
+                    <div id="success-prompt">
+                        <div class="float-animation" style="font-size: 80px; margin-bottom: 16px; display: inline-block;">🎁</div>
+                        <h2 style="color: #00f2fe; margin: 0 0 10px 0; font-size: 28px;">Crate Unlocked!</h2>
+                        <p style="color: var(--hint); margin-bottom: 24px; font-size: 15px;">Your random coin reward is ready to be claimed.</p>
+                        <button class="btn" id="claim-btn" style="width: 100%; padding: 14px; font-size: 16px; font-weight: 700; border-radius: 12px; transition: all 0.2s;">
+                            <span>💰 Claim Coins</span>
+                        </button>
+                    </div>
+                    <div id="claim-result" class="hidden">
+                        <div style="font-size: 72px; margin-bottom: 16px;">💎</div>
+                        <h2 style="color: #34c759; margin: 0 0 10px 0; font-size: 28px;">Reward Claimed!</h2>
+                        <p style="color: var(--hint); margin-bottom: 24px; font-size: 16px;">You received <b style="color: #fff; font-size: 22px;" id="reward-amount-display">0</b> coins!</p>
+                        <button class="btn" onclick="resetDropUI()" style="width: 100%; padding: 14px; font-size: 16px; font-weight: 700; border-radius: 12px; transition: all 0.2s;">
+                            <span>Back to Dashboard</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tab Bar -->
+    <div class="tab-bar glass-panel">
+        <div class="tab-item active" onclick="switchTab('home', this)" data-target="home">
+            <span class="tab-icon">🏠</span>
+            <span>Home</span>
+        </div>
+        <div class="tab-item" onclick="switchTab('spin', this)" data-target="spin">
+            <span class="tab-icon">🎡</span>
+            <span>Spin</span>
+        </div>
+        <div class="tab-item" onclick="switchTab('drop', this)" data-target="drop">
+            <span class="tab-icon">🎁</span>
+            <span>Drop</span>
+        </div>
+        <div class="tab-item" onclick="switchTab('leaderboard', this)" data-target="leaderboard">
+            <span class="tab-icon">🏆</span>
+            <span>Top</span>
+        </div>
+        <div class="tab-item" onclick="switchTab('shop', this)" data-target="shop">
+            <span class="tab-icon">🛒</span>
+            <span>Shop</span>
+        </div>
+    </div>
+
+    <!-- Profile Modal -->
+    <div class="modal-overlay" id="profile-modal">
+        <div class="modal-content">
+            <button class="modal-close" onclick="closeModal()">✕</button>
+            <div id="modal-body" class="hidden">
+                <div class="avatar modal-avatar" id="m-initial">?</div>
+                <h2 class="modal-name" id="m-name">Player</h2>
+                <div class="modal-rank" id="m-rank">Rank: #--</div>
+                
+                <div class="modal-grid">
+                    <div class="modal-stat">
+                        <div style="font-size: 11px; color: var(--hint); margin-bottom: 4px;">RATING</div>
+                        <div style="font-size: 16px; font-weight: 700; color: #fff;" id="m-rating">0</div>
+                    </div>
+                    <div class="modal-stat">
+                        <div style="font-size: 11px; color: var(--hint); margin-bottom: 4px;">RANK</div>
+                        <div style="font-size: 16px; font-weight: 700; color: #fff;" id="m-rank-val">#--</div>
+                    </div>
+                    <div class="modal-stat">
+                        <div style="font-size: 11px; color: var(--hint); margin-bottom: 4px;">COINS</div>
+                        <div style="font-size: 16px; font-weight: 700; color: #fff;" id="m-coins">0</div>
+                    </div>
+                    <div class="modal-stat">
+                        <div style="font-size: 11px; color: var(--hint); margin-bottom: 4px;">WINS</div>
+                        <div style="font-size: 16px; font-weight: 700; color: #fff;" id="m-wins">0</div>
+                    </div>
+                    <div class="modal-stat">
+                        <div style="font-size: 11px; color: var(--hint); margin-bottom: 4px;">PLAYED</div>
+                        <div style="font-size: 16px; font-weight: 700; color: #fff;" id="m-played">0</div>
+                    </div>
+                    <div class="modal-stat">
+                        <div style="font-size: 11px; color: var(--hint); margin-bottom: 4px;">WIN RATE</div>
+                        <div style="font-size: 16px; font-weight: 700; color: #fff;" id="m-rate">0%</div>
+                    </div>
+                </div>
+            </div>
+            <div id="modal-loading" class="loading-spinner">Loading Profile...</div>
+        </div>
+    </div>
+
+    <script>
+        const tg = window.Telegram.WebApp;
+        tg.ready();
+        tg.expand();
+        tg.setHeaderColor('#0f0c29'); 
+        tg.setBackgroundColor('#0f0c29');
+
+        // Check if launching a cricket match from a group chat deep link
+        const startParam = tg.initDataUnsafe?.start_param;
+        if (startParam && startParam.startsWith('cricket_')) {
+            const parts = startParam.split('_');
+            const cricketMatchId = parts[1];
+            const cricketChatId = parts[2];
+            if (cricketMatchId && cricketChatId) {
+                window.location.replace(`/cricket?match_id=${cricketMatchId}&chat_id=${cricketChatId}`);
+                throw new Error("Redirecting to cricket match...");
+            }
+        }
+
+        const userId = tg.initDataUnsafe?.user?.id;
+        const urlParams = new URLSearchParams(window.location.search);
+        let msgId = urlParams.get('msg_id') || '0';
+        let defaultTab = urlParams.get('tab');
+        let chatIdUrl = urlParams.get('chat_id');
+
+        if (startParam) {
+            if (startParam.startsWith('drop_')) {
+                const parts = startParam.split('_');
+                msgId = parts[1];
+                chatIdUrl = parts[2];
+                defaultTab = 'drop';
+            } else if (startParam === 'spin') {
+                defaultTab = 'spin';
+            } else if (startParam === 'shop') {
+                defaultTab = 'shop';
+            } else if (startParam === 'drop') {
+                defaultTab = 'drop';
+            }
+        }
+
+        let currentLbSort = 'rating';
+
+        function updateDropCooldownUI(data) {
+            const btn = document.getElementById('watch-btn');
+            const status = document.getElementById('status');
+            if (!btn) return;
+
+            if (data.dropCooldown && data.dropCooldown > 0) {
+                btn.disabled = true;
+                btn.classList.remove('pulse');
+                const remainingMin = Math.ceil(data.dropCooldown / (60 * 1000));
+                btn.innerHTML = `<span>⏳ Available in ${remainingMin}m</span>`;
+                if (status) {
+                    status.innerText = "COOLDOWN ACTIVE";
+                    status.style.color = "var(--hint)";
+                }
+            } else {
+                btn.disabled = false;
+                btn.classList.add('pulse');
+                btn.innerHTML = `<span>📺 Watch & Claim Drop</span>`;
+                if (status) {
+                    status.innerText = "Ready to unlock!";
+                    status.style.color = "var(--hint)";
+                }
+            }
+        }
+
+        function updateLuckySpinJackpotUI(jackpotClaimed) {
+            const slice9 = document.querySelector('.slice-text[data-i="9"]');
+            const grandPrizeTag = document.querySelector('.grand-prize-tag');
+            if (jackpotClaimed) {
+                if (slice9) {
+                    slice9.innerHTML = '10k';
+                    slice9.style.paddingRight = '25px';
+                }
+                if (grandPrizeTag) {
+                    grandPrizeTag.innerHTML = `
+                        <span class="prize-crown">👑</span>
+                        <span class="prize-tag-text">Grand Prize: <b>10,000 Coins</b> (Shreyas Iyer Claimed)</span>
+                    `;
+                }
+            } else {
+                if (slice9) {
+                    slice9.innerHTML = '<img class="slice-img" src="/assets/players/shreyas_iyer.jpg" alt="Iyer">';
+                    slice9.style.paddingRight = '16px';
+                }
+                if (grandPrizeTag) {
+                    grandPrizeTag.innerHTML = `
+                        <span class="prize-crown">👑</span>
+                        <span class="prize-tag-text">Grand Prize: <b>Shreyas Iyer</b> (86 OVR Batsman)</span>
+                    `;
+                }
+            }
+        }
+
+        function checkDropCooldown() {
+            fetch(`/api/user-stats?user_id=${userId}`)
+                .then(res => res.json())
+                .then(data => {
+                    const coinEl = document.getElementById('stat-coins');
+                    if (coinEl) coinEl.innerText = data.coins.toLocaleString();
+                    updateDropCooldownUI(data);
+                })
+                .catch(err => console.error(err));
+        }
+
+        function resetDropUI() {
+            document.getElementById('success-box').classList.add('hidden');
+            document.getElementById('ad-container').classList.remove('hidden');
+            document.getElementById('claim-result').classList.add('hidden');
+            document.getElementById('success-prompt').classList.remove('hidden');
+            
+            const claimBtn = document.getElementById('claim-btn');
+            if (claimBtn) {
+                claimBtn.disabled = false;
+                const btnSpan = claimBtn.querySelector('span');
+                if (btnSpan) btnSpan.innerText = '💰 Claim Coins';
+                else claimBtn.innerText = '💰 Claim Coins';
+            }
+            
+            checkDropCooldown();
+            
+            const homeTab = document.querySelector('.tab-item[data-target="home"]');
+            if (homeTab) switchTab('home', homeTab);
+        }
+
+        // Initial Data Fetch
+        fetch(`/api/user-stats?user_id=${userId}`)
+            .then(res => res.json())
+            .then(data => {
+                document.getElementById('user-name').innerText = data.name;
+                document.getElementById('user-initial').innerText = data.name.charAt(0).toUpperCase();
+                document.getElementById('user-rank').innerText = `Global Rank: #${data.rank}`;
+                document.getElementById('stat-rating').innerText = data.rating || 0;
+                document.getElementById('stat-coins').innerText = data.coins.toLocaleString();
+                document.getElementById('stat-wins').innerText = data.wins;
+
+                if (data.spinCooldown && data.spinCooldown > 0) {
+                    const freeBtn = document.getElementById('free-spin-btn');
+                    if (freeBtn) {
+                        freeBtn.disabled = true;
+                        freeBtn.classList.remove('pulse');
+                        freeBtn.style.opacity = '0.5';
+                        const remainingHrs = Math.ceil(data.spinCooldown / (60 * 60 * 1000));
+                        freeBtn.innerHTML = `<span>⏳ Available in ${remainingHrs}h</span>`;
+                    }
+                }
+
+                updateDropCooldownUI(data);
+                updateLuckySpinJackpotUI(data.jackpotClaimed);
+
+                // Handle default tab routing
+                if (defaultTab) {
+                    const tabEl = document.querySelector(`.tab-item[data-target="${defaultTab}"]`);
+                    if (tabEl) switchTab(defaultTab, tabEl);
+                }
+            })
+            .catch(err => console.error(err));
+
+        function switchTab(tab, el) {
+            document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+            document.querySelectorAll('.tab-item').forEach(t => t.classList.remove('active'));
+            
+            document.getElementById(`view-${tab}`).classList.add('active');
+            el.classList.add('active');
+            
+            try { tg.HapticFeedback.impactOccurred('light'); } catch(e) {}
+
+            if (tab === 'leaderboard') {
+                loadLeaderboard(currentLbSort);
+            } else if (tab === 'shop') {
+                loadShop();
+            } else if (tab === 'drop') {
+                checkDropCooldown();
+            }
+        }
+
+        // Leaderboard Logic
+        function loadLeaderboard(sort) {
+            currentLbSort = sort;
+            const ratingBtn = document.getElementById('seg-rating');
+            const winsBtn = document.getElementById('seg-wins');
+            const coinsBtn = document.getElementById('seg-coins');
+            
+            if (ratingBtn) ratingBtn.classList.toggle('active', sort === 'rating');
+            if (winsBtn) winsBtn.classList.toggle('active', sort === 'wins');
+            if (coinsBtn) coinsBtn.classList.toggle('active', sort === 'coins');
+            
+            const container = document.getElementById('lb-container');
+            const loader = document.getElementById('lb-loading');
+            
+            container.classList.add('hidden');
+            loader.classList.remove('hidden');
+
+            fetch(`/api/leaderboard?sort=${sort}`)
+                .then(res => res.json())
+                .then(data => {
+                    container.innerHTML = '';
+                    data.forEach((p, idx) => {
+                        let val = `📈 ${p.rating || 0} Rating`;
+                        if (sort === 'wins') {
+                            val = `🏆 ${p.wins.toLocaleString()} Wins`;
+                        } else if (sort === 'coins') {
+                            val = `💰 ${p.coins.toLocaleString()}`;
+                        }
+                        let rankDisplay = idx + 1;
+                        if (idx === 0) rankDisplay = '🥇';
+                        else if (idx === 1) rankDisplay = '🥈';
+                        else if (idx === 2) rankDisplay = '🥉';
+
+                        const div = document.createElement('div');
+                        div.className = 'lb-item glass-panel';
+                        div.setAttribute('data-rank', idx + 1);
+                        div.onclick = () => openProfile(p.id);
+                        div.innerHTML = `
+                            <div class="lb-rank">${rankDisplay}</div>
+                            <div class="lb-info">
+                                <h4 class="lb-name">${p.name}</h4>
+                                <div class="lb-val">${val}</div>
+                            </div>
+                            <div style="color: var(--hint); font-size: 20px;">›</div>
+                        `;
+                        container.appendChild(div);
+                    });
+                    loader.classList.add('hidden');
+                    container.classList.remove('hidden');
+                })
+                .catch(err => {
+                    loader.innerText = "Error loading data.";
+                });
+        }
+
+        // Profile Modal Logic
+        function openProfile(uid) {
+            try { tg.HapticFeedback.impactOccurred('medium'); } catch(e) {}
+            const modal = document.getElementById('profile-modal');
+            const mBody = document.getElementById('modal-body');
+            const mLoad = document.getElementById('modal-loading');
+            
+            modal.classList.add('active');
+            mBody.classList.add('hidden');
+            mLoad.classList.remove('hidden');
+
+            fetch(`/api/user-stats?user_id=${uid}`)
+                .then(res => res.json())
+                .then(data => {
+                    document.getElementById('m-name').innerText = data.name;
+                    document.getElementById('m-initial').innerText = data.name.charAt(0).toUpperCase();
+                    document.getElementById('m-rank').innerText = `Global Rank: #${data.rank}`;
+                    document.getElementById('m-rating').innerText = data.rating || 0;
+                    document.getElementById('m-rank-val').innerText = `#${data.rank}`;
+                    document.getElementById('m-coins').innerText = data.coins.toLocaleString();
+                    document.getElementById('m-wins').innerText = data.wins;
+                    document.getElementById('m-played').innerText = data.played;
+                    
+                    const rate = data.played > 0 ? Math.round((data.wins / data.played) * 100) : 0;
+                    document.getElementById('m-rate').innerText = `${rate}%`;
+
+                    mLoad.classList.add('hidden');
+                    mBody.classList.remove('hidden');
+                })
+                .catch(() => {
+                    mLoad.innerText = "Error loading profile.";
+                });
+        }
+
+        function closeModal() {
+            document.getElementById('profile-modal').classList.remove('active');
+        }
+
+        // Adsgram Integration
+        const AdController = window.Adsgram.init({ blockId: "30511" });
+
+        const watchBtn = document.getElementById('watch-btn');
+        if (watchBtn) {
+            watchBtn.onclick = () => {
+                const btn = document.getElementById('watch-btn');
+                const status = document.getElementById('status');
+                btn.disabled = true;
+                btn.classList.remove('pulse');
+                status.innerText = "LOADING VIDEO... ⏳";
+
+                AdController.show().then(() => {
+                    try { tg.HapticFeedback.notificationOccurred('success'); } catch(e) {}
+                    document.getElementById('ad-container').classList.add('hidden');
+                    document.getElementById('success-box').classList.remove('hidden');
+                }).catch(() => {
+                    btn.disabled = false;
+                    btn.classList.add('pulse');
+                    status.innerText = "VIDEO CLOSED EARLY";
+                    tg.showAlert("You must watch the full video to claim your reward!");
+                });
+            };
+        }
+
+        // Prevents multiple claims via rapid clicks
+        const claimBtn = document.getElementById('claim-btn');
+        if (claimBtn) {
+            claimBtn.onclick = (e) => {
+                const btn = claimBtn;
+                if (btn.disabled) return;
+                
+                btn.disabled = true;
+                const btnSpan = btn.querySelector('span');
+                if (btnSpan) btnSpan.innerText = 'Claiming... ⏳';
+                else btn.innerText = 'Claiming... ⏳';
+                
+                try { tg.HapticFeedback.impactOccurred('medium'); } catch(e) {}
+                
+                const chatId = chatIdUrl || userId;
+
+                fetch(`/api/reward?user_id=${userId}&msg_id=${msgId}&chat_id=${chatId}`)
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data.success) {
+                            document.getElementById('reward-amount-display').innerText = data.amount.toLocaleString();
+                            document.getElementById('success-prompt').classList.add('hidden');
+                            document.getElementById('claim-result').classList.remove('hidden');
+                            try { tg.HapticFeedback.notificationOccurred('success'); } catch(e) {}
+                        } else {
+                            btn.disabled = false;
+                            if (btnSpan) btnSpan.innerText = '💰 Claim Coins';
+                            else btn.innerText = '💰 Claim Coins';
+                            tg.showAlert(`Failed to claim: ${data.error || 'unknown error'}`);
+                        }
+                    })
+                    .catch((err) => {
+                        console.error("Claim error:", err);
+                        btn.disabled = false;
+                        if (btnSpan) btnSpan.innerText = '💰 Claim Coins';
+                        else btn.innerText = '💰 Claim Coins';
+                        tg.showAlert('Failed to connect to the server. Please try again.');
+                    });
+            };
+        }
+
+        // Shop Logic
+        let shopData = { cricket: [], football: [], owned: [] };
+        let currentShopSport = 'cricket';
+        let currentShopRole = ''; // empty means 'All'
+        let currentShopSort = 'ovr'; // default sort
+
+        const countryFlags = {
+            'India': '🇮🇳', 'Australia': '🇦🇺', 'England': '🏴󠁧󠁢󠁥󠁮󠁧󠁿', 'New Zealand': '🇳🇿',
+            'South Africa': '🇿🇦', 'Pakistan': '🇵🇰', 'West Indies': '🏝️', 'Sri Lanka': '🇱🇰',
+            'Bangladesh': '🇧🇩', 'Afghanistan': '🇦🇫', 'Zimbabwe': '🇿🇼', 'Ireland': '🇮🇪',
+            'Scotland': '🏴󠁧󠁢󠁳󠁣󠁴󠁿', 'Netherlands': '🇳🇱', 'Namibia': '🇳🇦', 'Nepal': '🇳🇵',
+            'UAE': '🇦🇪', 'Oman': '🇴🇲', 'USA': '🇺🇸', 'Argentina': '🇦🇷', 'Portugal': '🇵🇹',
+            'France': '🇫🇷', 'Norway': '🇳🇴', 'Belgium': '🇧🇪', 'Brazil': '🇧🇷', 'Egypt': '🇪🇬',
+            'Croatia': '🇭🇷', 'Germany': '🇩🇪', 'Spain': '🇪🇸', 'Italy': '🇮🇹', 'Poland': '🇵🇱',
+            'Senegal': '🇸🇳', 'South Korea': '🇰🇷', 'Korea Republic': '🇰🇷', 'Uruguay': '🇺🇾',
+            'Canada': '🇨🇦', 'Morocco': '🇲🇦', 'Japan': '🇯🇵', 'Colombia': '🇨🇴'
+        };
+
+        function getOvrColor(ovr) {
+            if (ovr >= 95) return '#FF6B35';
+            if (ovr >= 90) return '#A855F7';
+            if (ovr >= 85) return '#F5A623';
+            if (ovr >= 75) return '#94A3B8';
+            if (ovr >= 65) return '#B87333';
+            return '#6B7280';
+        }
+
+        function getRoleLabel(role) {
+            const labels = {
+                'batsman': 'BAT',
+                'bowler': 'BWL',
+                'all_rounder': 'AR',
+                'wicket_keeper': 'WK',
+                'Forward': 'FWD',
+                'Midfielder': 'MID',
+                'Defender': 'DEF',
+                'Goalkeeper': 'GK'
+            };
+            return labels[role] || role.toUpperCase();
+        }
+
+        function getRoleColor(role) {
+            const colors = {
+                'batsman': '#3B82F6',
+                'bowler': '#EF4444',
+                'all_rounder': '#8B5CF6',
+                'wicket_keeper': '#F59E0B',
+                'Forward': '#EF4444',
+                'Midfielder': '#8B5CF6',
+                'Defender': '#3B82F6',
+                'Goalkeeper': '#F59E0B'
+            };
+            return colors[role] || '#8b95a8';
+        }
+
+        function loadShop() {
+            const grid = document.getElementById('shop-grid');
+            const loader = document.getElementById('shop-loading');
+            grid.classList.add('hidden');
+            loader.classList.remove('hidden');
+            loader.innerText = 'Loading Shop...';
+
+            fetch(`/api/shop/players?user_id=${userId}`)
+                .then(res => res.json())
+                .then(data => {
+                    shopData = data;
+                    updateShopFilterRoles();
+                    updateShopOvrFilter();
+                    renderShop();
+                    loader.classList.add('hidden');
+                    grid.classList.remove('hidden');
+                })
+                .catch(err => {
+                    console.error(err);
+                    loader.innerText = "Error loading shop data.";
+                });
+        }
+
+        function switchShopSport(sport) {
+            currentShopSport = sport;
+            document.getElementById('shop-tab-cricket').classList.toggle('active', sport === 'cricket');
+            document.getElementById('shop-tab-football').classList.toggle('active', sport === 'football');
+            
+            document.getElementById('shop-search').value = '';
+            currentShopRole = '';
+            
+            // Reset sort button state visually
+            const sortChips = document.getElementById('shop-sort-chips');
+            sortChips.querySelectorAll('.sort-chip').forEach(c => c.classList.remove('active'));
+            sortChips.querySelector('[data-sort="ovr"]').classList.add('active');
+            currentShopSort = 'ovr';
+
+            updateShopFilterRoles();
+            updateShopOvrFilter();
+            renderShop();
+        }
+
+        function updateShopFilterRoles() {
+            const container = document.getElementById('shop-role-chips');
+            container.innerHTML = '';
+            
+            const roles = currentShopSport === 'cricket' 
+                ? [
+                    { id: '', label: 'All' },
+                    { id: 'batsman', label: '🏏 BAT' },
+                    { id: 'bowler', label: '🎳 BWL' },
+                    { id: 'all_rounder', label: '⚡ AR' },
+                    { id: 'wicket_keeper', label: '🧤 WK' }
+                  ]
+                : [
+                    { id: '', label: 'All' },
+                    { id: 'Forward', label: '⚽ FWD' },
+                    { id: 'Midfielder', label: '⚡ MID' },
+                    { id: 'Defender', label: '🛡️ DEF' },
+                    { id: 'Goalkeeper', label: '🧤 GK' }
+                  ];
+            
+            roles.forEach(r => {
+                const btn = document.createElement('button');
+                btn.className = `role-chip ${currentShopRole === r.id ? 'active' : ''}`;
+                btn.innerText = r.label;
+                btn.onclick = () => {
+                    container.querySelectorAll('.role-chip').forEach(c => c.classList.remove('active'));
+                    btn.classList.add('active');
+                    currentShopRole = r.id;
+                    renderShop();
+                };
+                container.appendChild(btn);
+            });
+        }
+
+        function updateShopOvrFilter() {
+            const ovrSelect = document.getElementById('shop-filter-ovr');
+            ovrSelect.innerHTML = '<option value="">All</option>';
+            
+            const players = currentShopSport === 'cricket' ? shopData.cricket : shopData.football;
+            const ovrs = [...new Set(players.map(p => p.ovr))].sort((a, b) => b - a);
+            
+            ovrs.forEach(ovr => {
+                const opt = document.createElement('option');
+                opt.value = ovr;
+                opt.innerText = ovr;
+                ovrSelect.appendChild(opt);
+            });
+        }
+
+        function setShopSort(sortType, btn) {
+            currentShopSort = sortType;
+            const container = document.getElementById('shop-sort-chips');
+            container.querySelectorAll('.sort-chip').forEach(c => c.classList.remove('active'));
+            btn.classList.add('active');
+            renderShop();
+        }
+
+        function renderShop() {
+            const grid = document.getElementById('shop-grid');
+            grid.innerHTML = '';
+
+            const players = currentShopSport === 'cricket' ? shopData.cricket : shopData.football;
+            const search = document.getElementById('shop-search').value.toLowerCase();
+            const ovrFilter = document.getElementById('shop-filter-ovr').value;
+
+            // Filter
+            let filtered = players.filter(p => {
+                const matchesSearch = p.name.toLowerCase().includes(search) || (p.country && p.country.toLowerCase().includes(search));
+                const matchesRole = !currentShopRole || p.role === currentShopRole;
+                const matchesOvr = !ovrFilter || p.ovr == ovrFilter;
+                return matchesSearch && matchesRole && matchesOvr;
+            });
+
+            // Sort
+            filtered.sort((a, b) => {
+                if (currentShopSort === 'ovr') return b.ovr - a.ovr;
+                if (currentShopSort === 'price') return b.buy_price - a.buy_price;
+                if (currentShopSort === 'name') return a.name.localeCompare(b.name);
+                return 0;
+            });
+
+            // Render
+            if (filtered.length === 0) {
+                grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: var(--hint); padding: 40px 0;">No players found.</div>';
+                return;
+            }
+
+            filtered.forEach(p => {
+                const isOwned = shopData.owned.some(o => o.player_id === p.id && o.sport === currentShopSport);
+                const displayRole = getRoleLabel(p.role);
+                const roleColor = getRoleColor(p.role);
+                const tierClass = `tier-${p.tier.toLowerCase()}`;
+                const cardClass = p.tier === 'Gold' ? 'card-gold' : (p.tier === 'Legendary' ? 'card-legendary' : '');
+                const ovrColor = getOvrColor(p.ovr);
+                const flag = countryFlags[p.country] || '🏳️';
+
+                let btnHtml = '';
+                if (isOwned) {
+                    btnHtml = `<button class="player-buy-btn owned"><span>✓ Owned</span></button>`;
+                } else {
+                    btnHtml = `<button class="player-buy-btn" onclick="buyPlayer('${p.id}', '${currentShopSport}', ${p.buy_price})">
+                        <span>💰 ${p.buy_price.toLocaleString()}</span>
+                    </button>`;
+                }
+
+                const avatarHtml = p.image_url ? 
+                    `<div class="player-img-container ${p.tier.toLowerCase()}">
+                        <img class="player-img" src="${p.image_url}" alt="${p.name}">
+                     </div>` : 
+                    `<div class="player-placeholder-avatar" style="background: ${ovrColor}20; border-color: ${ovrColor}; margin-top: 8px; margin-bottom: 6px;">
+                        <span style="color: ${ovrColor};">${p.name.charAt(0)}</span>
+                     </div>`;
+
+                const card = document.createElement('div');
+                card.className = `player-card glass-panel ${cardClass}`;
+                card.innerHTML = `
+                    <div>
+                        <div class="player-badge-container">
+                            <span class="player-rating" style="background: ${ovrColor};">${p.ovr} OVR</span>
+                            <span class="player-tier ${tierClass}">${p.tier}</span>
+                        </div>
+                        ${avatarHtml}
+                        <div class="player-card-name" title="${p.name}">${p.name}</div>
+                        <div class="player-sub">${flag} ${p.country}</div>
+                        <div class="player-role-badge" style="background: ${roleColor}20; color: ${roleColor}; border: 1px solid ${roleColor}30;">
+                            ${displayRole}
+                        </div>
+                    </div>
+                    <div style="margin-top: 10px; width: 100%;">
+                        ${btnHtml}
+                    </div>
+                `;
+                grid.appendChild(card);
+            });
+        }
+
+        function buyPlayer(playerId, sport, price) {
+            try { tg.HapticFeedback.impactOccurred('medium'); } catch(e) {}
+            
+            tg.showConfirm(`Are you sure you want to buy this player for ${price.toLocaleString()} coins?`, (confirmed) => {
+                if (!confirmed) return;
+
+                const grid = document.getElementById('shop-grid');
+                const loader = document.getElementById('shop-loading');
+                
+                grid.classList.add('hidden');
+                loader.innerText = 'Processing purchase... ⏳';
+                loader.classList.remove('hidden');
+
+                fetch(`/api/shop/buy?user_id=${userId}&player_id=${playerId}&sport=${sport}`)
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data.success) {
+                            try { tg.HapticFeedback.notificationOccurred('success'); } catch(e) {}
+                            tg.showAlert('Purchase successful! Player added to your team.');
+                            const coinEl = document.getElementById('stat-coins');
+                            if (coinEl) coinEl.innerText = data.newBalance.toLocaleString();
+                            loadShop();
+                        } else {
+                            try { tg.HapticFeedback.notificationOccurred('error'); } catch(e) {}
+                            tg.showAlert(`Error: ${data.error}`);
+                            loader.classList.add('hidden');
+                            grid.classList.remove('hidden');
+                        }
+                    })
+                    .catch(err => {
+                        console.error(err);
+                        tg.showAlert('Failed to process purchase. Try again.');
+                        loader.classList.add('hidden');
+                        grid.classList.remove('hidden');
+                    });
+            });
+        }
+
+        // Spin Logic
+        let currentRotation = 0;
+
+        function executeSpin(isAd) {
+            const freeBtn = document.getElementById('free-spin-btn');
+            const adBtn = document.getElementById('ad-spin-btn');
+            const status = document.getElementById('spin-status');
+
+            if (freeBtn.disabled && adBtn.disabled) return; 
+
+            const runSpinBackend = () => {
+                freeBtn.disabled = true;
+                adBtn.disabled = true;
+                status.innerText = "SPINNING... 🎡";
+                
+                fetch(`/api/spin?user_id=${userId}&is_ad=${isAd}`)
+                    .then(res => res.json())
+                    .then(data => {
+                        if (!data.success) {
+                            status.innerText = data.error.toUpperCase();
+                            freeBtn.disabled = !isAd ? false : freeBtn.disabled;
+                            adBtn.disabled = false;
+                            return;
+                        }
+
+                        // Animate wheel
+                        try { tg.HapticFeedback.impactOccurred('rigid'); } catch(e) {}
+                        
+                        const sliceMap = {
+                            100: [0, 2, 4, 6, 8],
+                            500: [1, 7],
+                            1000: [3],
+                            2000: [5],
+                            10000: [9]
+                        };
+                        const possibleIndices = sliceMap[data.amount] || [0];
+                        const targetIndex = possibleIndices[Math.floor(Math.random() * possibleIndices.length)];
+
+                        const offset = Math.floor(Math.random() * 24) - 12; // -12 to +12 degrees randomness
+                        const sliceCenter = targetIndex * 36 + 18;
+                        const targetDegree = 270 - (sliceCenter + offset);
+                        
+                        const extraSpins = 6;
+                        let nextRotation = currentRotation + (360 * extraSpins);
+                        nextRotation -= nextRotation % 360; 
+                        currentRotation = nextRotation + targetDegree;
+                        
+                        const wheel = document.getElementById('spin-wheel');
+                        const pointer = document.querySelector('.wheel-pointer');
+                        wheel.style.transform = `rotate(${currentRotation}deg)`;
+
+                        // Real-time pointer clicking animation and haptic tick loop
+                        let lastSlice = -1;
+                        const startTime = Date.now();
+                        const duration = 5000;
+                        function checkTick() {
+                            const elapsed = Date.now() - startTime;
+                            if (elapsed >= duration) {
+                                if (pointer) pointer.classList.remove('tick');
+                                return;
+                            }
+                            const style = window.getComputedStyle(wheel);
+                            const matrix = style.transform || style.webkitTransform;
+                            if (matrix && matrix !== 'none') {
+                                const values = matrix.split('(')[1].split(')')[0].split(',');
+                                const a = parseFloat(values[0]);
+                                const b = parseFloat(values[1]);
+                                let angle = Math.round(Math.atan2(b, a) * (180 / Math.PI));
+                                if (angle < 0) angle += 360;
+                                const currentSlice = Math.floor(angle / 36);
+                                if (currentSlice !== lastSlice) {
+                                    lastSlice = currentSlice;
+                                    if (pointer) {
+                                        pointer.classList.remove('tick');
+                                        void pointer.offsetWidth; // force reflow
+                                        pointer.classList.add('tick');
+                                    }
+                                    try { tg.HapticFeedback.impactOccurred('light'); } catch(e) {}
+                                }
+                            }
+                            requestAnimationFrame(checkTick);
+                        }
+                        requestAnimationFrame(checkTick);
+
+                        setTimeout(() => {
+                            if (data.wonPlayer) {
+                                try { tg.HapticFeedback.notificationOccurred('success'); } catch(e) {}
+                                if (data.alreadyOwned) {
+                                    status.innerHTML = `<span style="color:#FFD700; font-size:16px; font-weight:bold; animation: pulse 1.5s infinite; text-shadow: 0 0 10px rgba(255,215,0,0.5);">🎉 JACKPOT! Won Shreyas Iyer! <br><span style="font-size:13px; color:#aaa;">(Already owned, got 10,000 Coins)</span> 🎉</span>`;
+                                } else {
+                                    status.innerHTML = `<span style="color:#FFD700; font-size:18px; font-weight:bold; animation: pulse 1.5s infinite; text-shadow: 0 0 15px #ffd700;">🎉 JACKPOT! Won Shreyas Iyer! 🎉</span>`;
+                                }
+                            } else if (data.isJackpot) {
+                                try { tg.HapticFeedback.notificationOccurred('success'); } catch(e) {}
+                                status.innerHTML = `<span style="color:#FFD700; font-size:20px; animation: pulse 1s infinite;">🎉 JACKPOT! ${data.amount} COINS! 🎉</span>`;
+                            } else {
+                                try { tg.HapticFeedback.impactOccurred('heavy'); } catch(e) {}
+                                status.innerHTML = `<span style="color:#00f2fe;">You won ${data.amount} coins!</span>`;
+                            }
+                            
+                            const coinEl = document.getElementById('stat-coins');
+                            if (coinEl) coinEl.innerText = data.newBal.toLocaleString();
+
+                            if (data.wonPlayer || (data.isJackpot && data.amount >= 10000)) {
+                                updateLuckySpinJackpotUI(true);
+                            }
+
+                            if (!isAd) {
+                                freeBtn.innerHTML = `<span>⏳ Available in 24h</span>`;
+                                freeBtn.classList.remove('pulse');
+                                freeBtn.style.opacity = '0.5';
+                            }
+                            adBtn.disabled = false;
+                        }, 5000); // Wait for 5s CSS animation
+                    })
+                    .catch(() => {
+                        status.innerText = "ERROR OCCURRED";
+                        freeBtn.disabled = !isAd ? false : freeBtn.disabled;
+                        adBtn.disabled = false;
+                    });
+            };
+
+            if (isAd) {
+                status.innerText = "LOADING AD... ⏳";
+                AdController.show().then(() => {
+                    runSpinBackend();
+                }).catch(() => {
+                    status.innerText = "AD SKIPPED";
+                });
+            } else {
+                runSpinBackend();
+            }
+        }
+
+    </script>
+</body>
+</html>
