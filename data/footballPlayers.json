@@ -1,0 +1,362 @@
+[
+  {
+    "id": "fb_01",
+    "name": "Lionel Messi",
+    "country": "Argentina",
+    "role": "Forward",
+    "ovr": 97,
+    "buy_price": 2500000,
+    "tier": "Legendary"
+  },
+  {
+    "id": "fb_02",
+    "name": "Cristiano Ronaldo",
+    "country": "Portugal",
+    "role": "Forward",
+    "ovr": 96,
+    "buy_price": 2300000,
+    "tier": "Legendary"
+  },
+  {
+    "id": "fb_03",
+    "name": "Kylian Mbappé",
+    "country": "France",
+    "role": "Forward",
+    "ovr": 94,
+    "buy_price": 1800000,
+    "tier": "Gold"
+  },
+  {
+    "id": "fb_04",
+    "name": "Erling Haaland",
+    "country": "Norway",
+    "role": "Forward",
+    "ovr": 93,
+    "buy_price": 1500000,
+    "tier": "Gold"
+  },
+  {
+    "id": "fb_05",
+    "name": "Kevin De Bruyne",
+    "country": "Belgium",
+    "role": "Midfielder",
+    "ovr": 93,
+    "buy_price": 1400000,
+    "tier": "Gold"
+  },
+  {
+    "id": "fb_06",
+    "name": "Jude Bellingham",
+    "country": "England",
+    "role": "Midfielder",
+    "ovr": 91,
+    "buy_price": 950000,
+    "tier": "Gold"
+  },
+  {
+    "id": "fb_07",
+    "name": "Vinícius Júnior",
+    "country": "Brazil",
+    "role": "Forward",
+    "ovr": 91,
+    "buy_price": 900000,
+    "tier": "Gold"
+  },
+  {
+    "id": "fb_08",
+    "name": "Harry Kane",
+    "country": "England",
+    "role": "Forward",
+    "ovr": 90,
+    "buy_price": 750000,
+    "tier": "Normal"
+  },
+  {
+    "id": "fb_09",
+    "name": "Mohamed Salah",
+    "country": "Egypt",
+    "role": "Forward",
+    "ovr": 90,
+    "buy_price": 720000,
+    "tier": "Normal"
+  },
+  {
+    "id": "fb_10",
+    "name": "Virgil van Dijk",
+    "country": "Netherlands",
+    "role": "Defender",
+    "ovr": 90,
+    "buy_price": 700000,
+    "tier": "Normal"
+  },
+  {
+    "id": "fb_11",
+    "name": "Neymar Jr",
+    "country": "Brazil",
+    "role": "Forward",
+    "ovr": 89,
+    "buy_price": 550000,
+    "tier": "Normal"
+  },
+  {
+    "id": "fb_12",
+    "name": "Robert Lewandowski",
+    "country": "Poland",
+    "role": "Forward",
+    "ovr": 89,
+    "buy_price": 520000,
+    "tier": "Normal"
+  },
+  {
+    "id": "fb_13",
+    "name": "Antoine Griezmann",
+    "country": "France",
+    "role": "Forward",
+    "ovr": 88,
+    "buy_price": 450000,
+    "tier": "Normal"
+  },
+  {
+    "id": "fb_14",
+    "name": "Bernardo Silva",
+    "country": "Portugal",
+    "role": "Midfielder",
+    "ovr": 88,
+    "buy_price": 430000,
+    "tier": "Normal"
+  },
+  {
+    "id": "fb_15",
+    "name": "Rodri",
+    "country": "Spain",
+    "role": "Midfielder",
+    "ovr": 91,
+    "buy_price": 880000,
+    "tier": "Gold"
+  },
+  {
+    "id": "fb_16",
+    "name": "Luka Modrić",
+    "country": "Croatia",
+    "role": "Midfielder",
+    "ovr": 87,
+    "buy_price": 380000,
+    "tier": "Normal"
+  },
+  {
+    "id": "fb_17",
+    "name": "Bruno Fernandes",
+    "country": "Portugal",
+    "role": "Midfielder",
+    "ovr": 87,
+    "buy_price": 360000,
+    "tier": "Normal"
+  },
+  {
+    "id": "fb_18",
+    "name": "Bukayo Saka",
+    "country": "England",
+    "role": "Forward",
+    "ovr": 87,
+    "buy_price": 350000,
+    "tier": "Normal"
+  },
+  {
+    "id": "fb_19",
+    "name": "Martin Ødegaard",
+    "country": "Norway",
+    "role": "Midfielder",
+    "ovr": 87,
+    "buy_price": 340000,
+    "tier": "Normal"
+  },
+  {
+    "id": "fb_20",
+    "name": "Son Heung-min",
+    "country": "South Korea",
+    "role": "Forward",
+    "ovr": 87,
+    "buy_price": 330000,
+    "tier": "Normal"
+  },
+  {
+    "id": "fb_21",
+    "name": "Alisson Becker",
+    "country": "Brazil",
+    "role": "Goalkeeper",
+    "ovr": 89,
+    "buy_price": 500000,
+    "tier": "Normal"
+  },
+  {
+    "id": "fb_22",
+    "name": "Thibaut Courtois",
+    "country": "Belgium",
+    "role": "Goalkeeper",
+    "ovr": 89,
+    "buy_price": 490000,
+    "tier": "Normal"
+  },
+  {
+    "id": "fb_23",
+    "name": "Ederson",
+    "country": "Brazil",
+    "role": "Goalkeeper",
+    "ovr": 87,
+    "buy_price": 320000,
+    "tier": "Normal"
+  },
+  {
+    "id": "fb_24",
+    "name": "Marc-André ter Stegen",
+    "country": "Germany",
+    "role": "Goalkeeper",
+    "ovr": 87,
+    "buy_price": 310000,
+    "tier": "Normal"
+  },
+  {
+    "id": "fb_25",
+    "name": "Rúben Dias",
+    "country": "Portugal",
+    "role": "Defender",
+    "ovr": 89,
+    "buy_price": 510000,
+    "tier": "Normal"
+  },
+  {
+    "id": "fb_26",
+    "name": "Marquinhos",
+    "country": "Brazil",
+    "role": "Defender",
+    "ovr": 86,
+    "buy_price": 280000,
+    "tier": "Normal"
+  },
+  {
+    "id": "fb_27",
+    "name": "William Saliba",
+    "country": "France",
+    "role": "Defender",
+    "ovr": 86,
+    "buy_price": 270000,
+    "tier": "Normal"
+  },
+  {
+    "id": "fb_28",
+    "name": "Ronald Araújo",
+    "country": "Uruguay",
+    "role": "Defender",
+    "ovr": 85,
+    "buy_price": 210000,
+    "tier": "Normal"
+  },
+  {
+    "id": "fb_29",
+    "name": "Alphonso Davies",
+    "country": "Canada",
+    "role": "Defender",
+    "ovr": 83,
+    "buy_price": 85000,
+    "tier": "Normal"
+  },
+  {
+    "id": "fb_30",
+    "name": "Achraf Hakimi",
+    "country": "Morocco",
+    "role": "Defender",
+    "ovr": 84,
+    "buy_price": 140000,
+    "tier": "Normal"
+  },
+  {
+    "id": "fb_31",
+    "name": "Zinedine Zidane",
+    "country": "France",
+    "role": "Midfielder",
+    "ovr": 96,
+    "buy_price": 2200000,
+    "tier": "Legendary"
+  },
+  {
+    "id": "fb_32",
+    "name": "Pelé",
+    "country": "Brazil",
+    "role": "Forward",
+    "ovr": 98,
+    "buy_price": 3000000,
+    "tier": "Legendary"
+  },
+  {
+    "id": "fb_33",
+    "name": "Diego Maradona",
+    "country": "Argentina",
+    "role": "Forward",
+    "ovr": 97,
+    "buy_price": 2800000,
+    "tier": "Legendary"
+  },
+  {
+    "id": "fb_34",
+    "name": "Johan Cruyff",
+    "country": "Netherlands",
+    "role": "Forward",
+    "ovr": 95,
+    "buy_price": 2000000,
+    "tier": "Legendary"
+  },
+  {
+    "id": "fb_35",
+    "name": "Ronaldinho",
+    "country": "Brazil",
+    "role": "Midfielder",
+    "ovr": 94,
+    "buy_price": 1900000,
+    "tier": "Legendary"
+  },
+  {
+    "id": "fb_36",
+    "name": "Paolo Maldini",
+    "country": "Italy",
+    "role": "Defender",
+    "ovr": 94,
+    "buy_price": 1700000,
+    "tier": "Legendary"
+  },
+  {
+    "id": "fb_37",
+    "name": "Lamine Yamal",
+    "country": "Spain",
+    "role": "Forward",
+    "ovr": 82,
+    "buy_price": 75000,
+    "tier": "Normal"
+  },
+  {
+    "id": "fb_38",
+    "name": "Cole Palmer",
+    "country": "England",
+    "role": "Midfielder",
+    "ovr": 83,
+    "buy_price": 82000,
+    "tier": "Normal"
+  },
+  {
+    "id": "fb_39",
+    "name": "Florian Wirtz",
+    "country": "Germany",
+    "role": "Midfielder",
+    "ovr": 85,
+    "buy_price": 200000,
+    "tier": "Normal"
+  },
+  {
+    "id": "fb_40",
+    "name": "Jamal Musiala",
+    "country": "Germany",
+    "role": "Midfielder",
+    "ovr": 86,
+    "buy_price": 260000,
+    "tier": "Normal"
+  }
+]
