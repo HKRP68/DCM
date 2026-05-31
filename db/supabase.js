@@ -1,4 +1,5 @@
 const { createClient } = require('@supabase/supabase-js');
+const fallbackCricketPlayers = require('../data/cricketPlayers.json');
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_KEY;
@@ -659,7 +660,7 @@ async function getUserOwnedPlayers(userId) {
 }
 
 async function getCricketPlayers() {
-  if (!supabase) return [];
+  if (!supabase) return fallbackCricketPlayers;
   const now = Date.now();
   if (cachedCricketPlayers && (now - lastCacheTime < CACHE_DURATION)) {
     return cachedCricketPlayers;
@@ -674,20 +675,24 @@ async function getCricketPlayers() {
         .select('*')
         .range(from, from + limit - 1);
       if (error) {
-        console.error("Error fetching cricket players range:", error);
-        break;
+        console.error("Error fetching cricket players range; using bundled catalog:", error);
+        return fallbackCricketPlayers;
       }
       if (!data || data.length === 0) break;
       allPlayers.push(...data);
       if (data.length < limit) break;
       from += limit;
     }
+    if (allPlayers.length === 0) {
+      console.warn("Cricket player catalog is empty in Supabase; using bundled catalog.");
+      return fallbackCricketPlayers;
+    }
     cachedCricketPlayers = allPlayers;
     lastCacheTime = now;
     return allPlayers;
   } catch (e) {
-    console.error("Failed to get cricket players:", e);
-    return [];
+    console.error("Failed to get cricket players; using bundled catalog:", e);
+    return fallbackCricketPlayers;
   }
 }
 
@@ -1180,38 +1185,25 @@ async function claimStarterPack(userId) {
   
   const release = await acquireLock(userId);
   try {
-    // 1. Check if user already claimed
-    const { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .select('claimed_starter')
+    // 1. Treat the owned squad as the source of truth. Older deployments may
+    // not have the optional profiles.claimed_starter column yet, and querying it
+    // would prevent every starter-pack claim before squad creation can begin.
+    const { data: ownedRows, error: ownedError } = await supabase
+      .from('user_owned_players')
+      .select('player_id')
       .eq('user_id', userId)
-      .maybeSingle();
+      .eq('sport', 'cricket');
       
-    if (profileError) {
-      console.error("Error fetching profile for starter pack:", profileError);
-      return { success: false, error: 'Database error fetching profile.' };
+    if (ownedError) {
+      console.error("Error fetching owned players for starter pack:", ownedError);
+      return { success: false, error: 'Database error checking owned players.' };
     }
-    
-    let isBackfill = false;
-    let ownedPlayers = [];
-    if (profile && profile.claimed_starter) {
-      const { data: ownedRows, error: ownedError } = await supabase
-        .from('user_owned_players')
-        .select('player_id')
-        .eq('user_id', userId)
-        .eq('sport', 'cricket');
-        
-      if (ownedError) {
-        console.error("Error fetching owned players for backfill check:", ownedError);
-        return { success: false, error: 'Database error checking owned players.' };
-      }
       
-      if (ownedRows && ownedRows.length >= 11) {
-        return { success: false, error: 'ALREADY_CLAIMED' };
-      }
-      isBackfill = true;
-      ownedPlayers = ownedRows || [];
+    const ownedPlayers = ownedRows || [];
+    if (ownedPlayers.length >= 11) {
+      return { success: false, error: 'ALREADY_CLAIMED' };
     }
+    const isBackfill = ownedPlayers.length > 0;
     
     // 2. Fetch all cricket players
     const players = await getCricketPlayers();
@@ -1370,8 +1362,10 @@ async function claimStarterPack(userId) {
       .eq('user_id', userId);
       
     if (updateError) {
-      console.error("Error updating profile starter claim state:", updateError);
-      return { success: false, error: 'Failed to update starter pack claim status.' };
+      // This marker is retained for migrated deployments, but the owned squad is
+      // authoritative. Do not fail a completed claim when the optional column is
+      // absent or the profile marker cannot be updated.
+      console.warn("Unable to update optional starter claim marker:", updateError);
     }
     
     return { success: true, players: allSelected, isBackfill };

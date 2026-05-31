@@ -141,6 +141,7 @@ In [@BotFather](https://t.me/BotFather):
 - Missing Supabase credentials cause database features to be bypassed in `db/supabase.js`, but many user-facing commands rely on persistence. Treat Supabase as required for production.
 - The Adsgram browser integration currently uses a hard-coded block ID in `index.html`; there is no Adsgram environment variable in the Node deployment.
 - Static assets under `public/`, `assets/`, and `data/` must be included in the deployed repository.
+- The server bundles `data/cricketPlayers.json` as a read-only cricket catalog fallback so the shop and starter pack remain usable if the `cricketplayers` table is temporarily unavailable or unseeded. Purchases and awarded squads still require `user_owned_players` and `profiles` persistence.
 
 ## 9. Updating an existing deployment
 
@@ -156,6 +157,6 @@ In [@BotFather](https://t.me/BotFather):
 | --- | --- | --- |
 | Process exits immediately on startup | Missing or invalid `BOT_TOKEN` | Verify the token from @BotFather and redeploy. |
 | Mini App buttons open the wrong domain | Missing/wrong `RENDER_EXTERNAL_HOSTNAME` | Set it to your public host, without protocol. |
-| Profiles, coins, shop, or leaderboards fail | Missing Supabase credentials or tables | Set `SUPABASE_URL`/`SUPABASE_KEY` and run SQL setup. |
+| Profiles, coins, shop, or leaderboards fail | Missing Supabase credentials or tables | Set `SUPABASE_URL`/`SUPABASE_KEY` and run SQL setup. The bundled cricket catalog keeps shop browsing available, but purchases still require persistence tables. |
 | Telegram Web App does not open | Domain not configured in BotFather or not HTTPS | Configure the production HTTPS domain in BotFather. |
 | Duplicate bot responses or polling errors | More than one process uses the same token | Stop duplicate deployments/workers for that token. |
