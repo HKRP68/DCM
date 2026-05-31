@@ -22,6 +22,16 @@ CREATE TABLE IF NOT EXISTS public.user_owned_players (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- CREATE TABLE IF NOT EXISTS leaves an existing table unchanged. Older
+-- deployments may already have a partial owned-player table, so add every
+-- column used by cricket claims and shop operations before creating indexes.
+ALTER TABLE public.user_owned_players ADD COLUMN IF NOT EXISTS id BIGSERIAL;
+ALTER TABLE public.user_owned_players ADD COLUMN IF NOT EXISTS user_id BIGINT;
+ALTER TABLE public.user_owned_players ADD COLUMN IF NOT EXISTS player_id TEXT;
+ALTER TABLE public.user_owned_players ADD COLUMN IF NOT EXISTS sport TEXT;
+ALTER TABLE public.user_owned_players ADD COLUMN IF NOT EXISTS squad_order INT DEFAULT 0;
+ALTER TABLE public.user_owned_players ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();
+
 CREATE INDEX IF NOT EXISTS idx_user_owned_players_user_id
     ON public.user_owned_players(user_id);
 CREATE INDEX IF NOT EXISTS idx_user_owned_players_sport
@@ -51,6 +61,3 @@ ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS team_name TEXT;
 
 -- Profiles Update for Cricket Starter Pack Claim
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS claimed_starter BOOLEAN DEFAULT FALSE;
-
--- Squad ordering for position-based squad management
-ALTER TABLE public.user_owned_players ADD COLUMN IF NOT EXISTS squad_order INT DEFAULT 0;

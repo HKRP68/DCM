@@ -43,7 +43,7 @@ For local Telegram Web App testing, use a tunnel such as ngrok or Cloudflare Tun
 2. Open **SQL Editor** in Supabase.
 3. Run the repository SQL files in this order:
    1. `data/cricketplayers.sql` - creates and seeds the `cricketplayers` catalog.
-   2. Your base application schema for `profiles`, `group_stats`, `bonus_claims`, `group_settings`, `group_rewards`, and `user_owned_players` if those tables do not already exist in your project.
+   2. Your base application schema for `group_stats`, `bonus_claims`, `group_settings`, and `group_rewards` if those tables do not already exist in your project. The cricket migration creates or upgrades `profiles` and `user_owned_players` itself.
    3. `db/migration.sql` - creates `hilo_games` and adds `profiles.last_daily`.
    4. `db/cricket_migration.sql` - creates `cricket_matches` and adds cricket/shop columns.
 4. Confirm Row Level Security policies allow the server key to perform the required reads/writes, or use a trusted service-role key only on the backend.
@@ -158,5 +158,6 @@ In [@BotFather](https://t.me/BotFather):
 | Process exits immediately on startup | Missing or invalid `BOT_TOKEN` | Verify the token from @BotFather and redeploy. |
 | Mini App buttons open the wrong domain | Missing/wrong `RENDER_EXTERNAL_HOSTNAME` | Set it to your public host, without protocol. |
 | Profiles, coins, shop, or leaderboards fail | Missing Supabase credentials or tables | Set `SUPABASE_URL`/`SUPABASE_KEY` and run SQL setup. The bundled cricket catalog keeps shop browsing available, but purchases still require persistence tables. |
+| `/claim` reports `Database error checking owned players.` | Missing or outdated `user_owned_players` table | Run the latest `db/cricket_migration.sql`, which creates the table and adds any missing cricket columns to an existing table. |
 | Telegram Web App does not open | Domain not configured in BotFather or not HTTPS | Configure the production HTTPS domain in BotFather. |
 | Duplicate bot responses or polling errors | More than one process uses the same token | Stop duplicate deployments/workers for that token. |
