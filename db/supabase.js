@@ -301,10 +301,72 @@ let starterPackSchemaReady = false;
 async function ensureStarterPackSchema() {
   if (!supabase || starterPackSchemaReady) return true;
   try {
-    await supabase.query('ALTER TABLE profiles ADD COLUMN IF NOT EXISTS claimed_starter BOOLEAN DEFAULT FALSE');
-    await supabase.query('UPDATE profiles SET claimed_starter = FALSE WHERE claimed_starter IS NULL');
-    await supabase.query('ALTER TABLE profiles ALTER COLUMN claimed_starter SET DEFAULT FALSE');
-    await supabase.query('ALTER TABLE profiles ALTER COLUMN claimed_starter SET NOT NULL');
+    // Neon deployments may start from only the player catalog SQL.  Make the
+    // starter-pack path self-healing so /claim does not fail when the core bot
+    // tables or newer columns have not been created yet.
+    await supabase.query(`
+      CREATE TABLE IF NOT EXISTS profiles (
+        user_id BIGINT PRIMARY KEY,
+        first_name TEXT DEFAULT 'User',
+        wins INT NOT NULL DEFAULT 0,
+        matches_played INT NOT NULL DEFAULT 0,
+        coins BIGINT NOT NULL DEFAULT 2000,
+        last_daily TIMESTAMPTZ,
+        last_spin TIMESTAMPTZ,
+        rating INT NOT NULL DEFAULT 0,
+        team_name TEXT,
+        claimed_starter BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await supabase.query(`
+      CREATE TABLE IF NOT EXISTS user_owned_players (
+        id BIGSERIAL PRIMARY KEY,
+        user_id BIGINT NOT NULL,
+        player_id TEXT NOT NULL,
+        sport TEXT NOT NULL DEFAULT 'cricket',
+        squad_order INT NOT NULL DEFAULT 0,
+        acquired_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+
+    // Add every profile/user-owned column used by /claim.  These ALTERs are
+    // safe on fully migrated databases and repair partially migrated Neon DBs.
+    await supabase.query(`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS first_name TEXT DEFAULT 'User'`);
+    await supabase.query(`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS wins INT DEFAULT 0`);
+    await supabase.query(`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS matches_played INT DEFAULT 0`);
+    await supabase.query(`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS coins BIGINT DEFAULT 2000`);
+    await supabase.query(`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS last_daily TIMESTAMPTZ`);
+    await supabase.query(`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS last_spin TIMESTAMPTZ`);
+    await supabase.query(`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS rating INT DEFAULT 0`);
+    await supabase.query(`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS team_name TEXT`);
+    await supabase.query(`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS claimed_starter BOOLEAN DEFAULT FALSE`);
+    await supabase.query(`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()`);
+    await supabase.query(`UPDATE profiles SET first_name = COALESCE(first_name, 'User')`);
+    await supabase.query(`UPDATE profiles SET wins = COALESCE(wins, 0)`);
+    await supabase.query(`UPDATE profiles SET matches_played = COALESCE(matches_played, 0)`);
+    await supabase.query(`UPDATE profiles SET coins = COALESCE(coins, 2000)`);
+    await supabase.query(`UPDATE profiles SET rating = COALESCE(rating, 0)`);
+    await supabase.query(`UPDATE profiles SET claimed_starter = COALESCE(claimed_starter, FALSE)`);
+    await supabase.query(`ALTER TABLE profiles ALTER COLUMN first_name SET DEFAULT 'User'`);
+    await supabase.query(`ALTER TABLE profiles ALTER COLUMN wins SET DEFAULT 0`);
+    await supabase.query(`ALTER TABLE profiles ALTER COLUMN matches_played SET DEFAULT 0`);
+    await supabase.query(`ALTER TABLE profiles ALTER COLUMN coins SET DEFAULT 2000`);
+    await supabase.query(`ALTER TABLE profiles ALTER COLUMN rating SET DEFAULT 0`);
+    await supabase.query(`ALTER TABLE profiles ALTER COLUMN claimed_starter SET DEFAULT FALSE`);
+    await supabase.query(`ALTER TABLE profiles ALTER COLUMN wins SET NOT NULL`);
+    await supabase.query(`ALTER TABLE profiles ALTER COLUMN matches_played SET NOT NULL`);
+    await supabase.query(`ALTER TABLE profiles ALTER COLUMN coins SET NOT NULL`);
+    await supabase.query(`ALTER TABLE profiles ALTER COLUMN rating SET NOT NULL`);
+    await supabase.query(`ALTER TABLE profiles ALTER COLUMN claimed_starter SET NOT NULL`);
+
+    await supabase.query(`ALTER TABLE user_owned_players ADD COLUMN IF NOT EXISTS squad_order INT DEFAULT 0`);
+    await supabase.query(`UPDATE user_owned_players SET squad_order = COALESCE(squad_order, 0)`);
+    await supabase.query(`ALTER TABLE user_owned_players ALTER COLUMN squad_order SET DEFAULT 0`);
+    await supabase.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_user_owned_players_unique_player ON user_owned_players(user_id, player_id, sport)`);
+    await supabase.query(`CREATE INDEX IF NOT EXISTS idx_user_owned_players_user_sport ON user_owned_players(user_id, sport)`);
+    await supabase.query(`CREATE INDEX IF NOT EXISTS idx_profiles_rating ON profiles(rating DESC, wins DESC, coins DESC)`);
+
     starterPackSchemaReady = true;
     return true;
   } catch (e) {
@@ -1426,16 +1488,34 @@ async function claimStarterPack(userId) {
       return { success: false, error: 'Database schema is missing the starter pack claim field. Please run the latest migration.' };
     }
 
-    // 2. Check if user already claimed
-    const { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .select('claimed_starter')
-      .eq('user_id', userId)
-      .maybeSingle();
-      
-    if (profileError) {
-      console.error("Error fetching profile for starter pack:", profileError);
-      return { success: false, error: 'Database error fetching profile.' };
+    // 2. Check if user already claimed.  Use raw SQL here so Neon can infer
+    // the parameter type from the user_id column, and retry schema repair once
+    // if the deployment was only partially migrated.
+    let profile;
+    try {
+      const profileResult = await supabase.query(
+        'SELECT claimed_starter FROM profiles WHERE user_id = $1 LIMIT 1',
+        [String(userId)]
+      );
+      profile = profileResult.rows[0] || null;
+    } catch (profileError) {
+      console.error("Error fetching profile for starter pack; retrying schema repair:", profileError);
+      starterPackSchemaReady = false;
+      const repaired = await ensureStarterPackSchema();
+      if (!repaired) {
+        return { success: false, error: 'Database error fetching profile.' };
+      }
+
+      try {
+        const retryResult = await supabase.query(
+          'SELECT claimed_starter FROM profiles WHERE user_id = $1 LIMIT 1',
+          [String(userId)]
+        );
+        profile = retryResult.rows[0] || null;
+      } catch (retryError) {
+        console.error("Error fetching profile for starter pack after schema repair:", retryError);
+        return { success: false, error: 'Database error fetching profile.' };
+      }
     }
 
     if (!profile) {
