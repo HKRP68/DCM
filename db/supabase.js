@@ -297,6 +297,22 @@ function releaseLock(releaseFn) {
   if (typeof releaseFn === 'function') releaseFn();
 }
 
+let starterPackSchemaReady = false;
+async function ensureStarterPackSchema() {
+  if (!supabase || starterPackSchemaReady) return true;
+  try {
+    await supabase.query('ALTER TABLE profiles ADD COLUMN IF NOT EXISTS claimed_starter BOOLEAN DEFAULT FALSE');
+    await supabase.query('UPDATE profiles SET claimed_starter = FALSE WHERE claimed_starter IS NULL');
+    await supabase.query('ALTER TABLE profiles ALTER COLUMN claimed_starter SET DEFAULT FALSE');
+    await supabase.query('ALTER TABLE profiles ALTER COLUMN claimed_starter SET NOT NULL');
+    starterPackSchemaReady = true;
+    return true;
+  } catch (e) {
+    console.error("Error ensuring starter pack profile schema:", e);
+    return false;
+  }
+}
+
 // --- Internal Coin Logic (No Locks) ---
 
 async function addCoinsInternal(userId, amount) {
@@ -1404,7 +1420,13 @@ async function claimStarterPack(userId) {
   
   const release = await acquireLock(userId);
   try {
-    // 1. Check if user already claimed
+    // 1. Make sure older deployments have the starter-pack profile flag before querying it.
+    const hasStarterSchema = await ensureStarterPackSchema();
+    if (!hasStarterSchema) {
+      return { success: false, error: 'Database schema is missing the starter pack claim field. Please run the latest migration.' };
+    }
+
+    // 2. Check if user already claimed
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
       .select('claimed_starter')
@@ -1415,8 +1437,14 @@ async function claimStarterPack(userId) {
       console.error("Error fetching profile for starter pack:", profileError);
       return { success: false, error: 'Database error fetching profile.' };
     }
-    
-    if (profile && profile.claimed_starter) {
+
+    if (!profile) {
+      const { error: createProfileError } = await supabase.from('profiles').insert({ user_id: userId });
+      if (createProfileError) {
+        console.error("Error creating profile for starter pack:", createProfileError);
+        return { success: false, error: 'Database error creating profile.' };
+      }
+    } else if (profile.claimed_starter) {
       return { success: false, error: 'ALREADY_CLAIMED' };
     }
     
