@@ -88,7 +88,7 @@ function setupEventListeners() {
   const submitWicketBatsmanBtn = document.getElementById('submit-wicket-batsman-btn');
   if (submitWicketBatsmanBtn) {
     submitWicketBatsmanBtn.addEventListener('click', () => {
-      const selectedEl = document.querySelector('#wicket-batsman-list .selection-item.selected');
+      const selectedEl = document.querySelector('#wicket-batsman-list .dropdown-item.selected');
       if (selectedEl) {
         document.getElementById('controls-sheet').classList.add('minimized');
         selectNextBatsman(parseInt(selectedEl.dataset.index));
@@ -102,7 +102,7 @@ function setupEventListeners() {
   const submitOverBowlerBtn = document.getElementById('submit-over-bowler-btn');
   if (submitOverBowlerBtn) {
     submitOverBowlerBtn.addEventListener('click', () => {
-      const selectedEl = document.querySelector('#over-bowler-list .selection-item.selected');
+      const selectedEl = document.querySelector('#over-bowler-list .dropdown-item.selected');
       if (selectedEl) {
         document.getElementById('controls-sheet').classList.add('minimized');
         selectNextBowler(parseInt(selectedEl.dataset.index));
@@ -846,9 +846,14 @@ function renderControlsSection() {
     
     const incomingCard = document.getElementById('incoming-delivery-container');
     if (matchState.currentDelivery) {
-      const delName = matchState.currentDelivery.replace(/_/g, ' ').toUpperCase();
-      const speedName = matchState.currentSpeed ? matchState.currentSpeed.toUpperCase() : 'NORMAL';
-      const displayText = `${speedName} ${delName}`;
+      let displayText = '';
+      if (matchState.currentDelivery === 'mystery_ball') {
+        displayText = '🔮 MYSTERY BALL';
+      } else {
+        const delName = matchState.currentDelivery.replace(/_/g, ' ').toUpperCase();
+        const speedName = matchState.currentSpeed ? matchState.currentSpeed.toUpperCase() : 'NORMAL';
+        displayText = `${speedName} ${delName}`;
+      }
 
       promptSubtitle.innerHTML = `<span class="glow-text" style="color:var(--warning-accent); font-weight:800; font-size:12px; letter-spacing:0.5px;">INCOMING: ${displayText}</span>`;
       incomingCard.classList.remove('hidden');
@@ -949,6 +954,9 @@ function renderBowlerVariations() {
     btn.className = "btn-variation";
     btn.innerText = del.name;
     btn.dataset.delivery = del.id;
+    if (del.id === 'mystery_ball' && matchState.mysteryBallBowledThisOver) {
+      btn.disabled = true;
+    }
     btn.addEventListener('click', (e) => {
       const allActionBtns = deliveryGrid.querySelectorAll('.btn-variation');
       allActionBtns.forEach(b => b.classList.remove('active'));
@@ -1005,6 +1013,8 @@ async function submitDelivery() {
   // Minimize sheet immediately
   document.getElementById('controls-sheet').classList.add('minimized');
 
+  const isMysteryBall = selectedDelivery === 'mystery_ball';
+
   try {
     const res = await fetch('/api/match/action', {
       method: 'POST',
@@ -1014,10 +1024,12 @@ async function submitDelivery() {
         type: 'delivery',
         action: {
           delivery: selectedDelivery,
-          speed: selectedSpeed
+          speed: selectedSpeed,
+          isMysteryBall
         }
       })
     });
+    
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Failed to submit delivery");
     fetchState();
@@ -1029,7 +1041,19 @@ async function submitDelivery() {
 // Selection list for incoming batsman
 function renderWicketBatsmanSelectionSheet() {
   const container = document.getElementById('wicket-batsman-list');
-  if (!container) return;
+  const dropdown = document.getElementById('batsman-dropdown');
+  const trigger = document.getElementById('batsman-dropdown-trigger');
+  if (!container || !dropdown || !trigger) return;
+
+  // Set up dropdown toggle
+  trigger.onclick = (e) => {
+    e.stopPropagation();
+    // Close other dropdowns
+    document.querySelectorAll('.custom-dropdown').forEach(d => {
+      if (d !== dropdown) d.classList.remove('open');
+    });
+    dropdown.classList.toggle('open');
+  };
 
   const getBatRating = (p) => p.batting_ovr || p.batting_rating || p.rating || p.ovr || 0;
 
@@ -1049,30 +1073,44 @@ function renderWicketBatsmanSelectionSheet() {
 
   if (bench.length === 0) {
     container.innerHTML = '<div class="no-options">No batsmen remaining</div>';
+    trigger.querySelector('.selected-value').innerText = "No batsmen remaining";
     return;
   }
 
-  let currentSel = container.querySelector('.selection-item.selected')?.dataset.index;
+  let currentSel = container.dataset.selectedIndex;
   if (currentSel === undefined && bench.length > 0) {
     currentSel = bench[0].index.toString();
+    container.dataset.selectedIndex = currentSel;
+  }
+
+  const selectedItem = bench.find(item => item.index.toString() === currentSel);
+  if (selectedItem) {
+    trigger.querySelector('.selected-value').innerText = `${selectedItem.player.name} (${getBatRating(selectedItem.player)} OVR)`;
   }
 
   const build = (selectedIdx) => {
     container.innerHTML = '';
     bench.forEach(item => {
       const div = document.createElement('div');
-      div.className = 'selection-item';
+      div.className = 'dropdown-item';
       div.dataset.index = item.index;
       
       const isSelected = selectedIdx === item.index.toString();
       if (isSelected) div.classList.add('selected');
       
       div.innerHTML = `
-        <span class="selection-item-name">${item.player.name}</span>
-        <span class="selection-item-meta">${getBatRating(item.player)} OVR - ${item.player.role || 'Batsman'}</span>
+        <div class="dropdown-item-info">
+          <span class="dropdown-item-name">${item.player.name}</span>
+          <span class="dropdown-item-meta">${item.player.role || 'Batsman'}</span>
+        </div>
+        <span class="dropdown-item-stat">${getBatRating(item.player)} OVR</span>
       `;
       
-      div.onclick = () => {
+      div.onclick = (e) => {
+        e.stopPropagation();
+        container.dataset.selectedIndex = item.index.toString();
+        trigger.querySelector('.selected-value').innerText = `${item.player.name} (${getBatRating(item.player)} OVR)`;
+        dropdown.classList.remove('open');
         build(item.index.toString());
       };
       container.appendChild(div);
@@ -1102,10 +1140,21 @@ async function selectNextBatsman(index) {
 }
 
 // Selection list for selecting next bowler
-// Selection list for selecting next bowler
 function renderOverBowlerSelectionSheet() {
   const container = document.getElementById('over-bowler-list');
-  if (!container) return;
+  const dropdown = document.getElementById('bowler-dropdown');
+  const trigger = document.getElementById('bowler-dropdown-trigger');
+  if (!container || !dropdown || !trigger) return;
+
+  // Set up dropdown toggle
+  trigger.onclick = (e) => {
+    e.stopPropagation();
+    // Close other dropdowns
+    document.querySelectorAll('.custom-dropdown').forEach(d => {
+      if (d !== dropdown) d.classList.remove('open');
+    });
+    dropdown.classList.toggle('open');
+  };
 
   const getBowlRating = (p) => p.bowling_ovr || p.bowling_rating || p.rating || p.ovr || 0;
   const currentBowlIdx = matchState.bowler ? matchState.bowlingXI.findIndex(p => p.id.toString() === matchState.bowler.id.toString()) : null;
@@ -1130,7 +1179,7 @@ function renderOverBowlerSelectionSheet() {
     } else if (stats.overs >= maxOvers) {
       if (otherEligible) {
         eligible = false;
-        reason = `Max limit reached (${stats.overs}/${maxOvers} ov)`;
+        reason = `Max limit (${stats.overs}/${maxOvers} ov)`;
       } else {
         reason = `Quota full (Fallback allowed)`;
       }
@@ -1142,24 +1191,30 @@ function renderOverBowlerSelectionSheet() {
     return getBowlRating(b.player) - getBowlRating(a.player);
   });
 
-  let currentSel = container.querySelector('.selection-item.selected')?.dataset.index;
+  let currentSel = container.dataset.selectedIndex;
   const firstEligible = bench.find(item => item.eligible);
   if (currentSel === undefined && firstEligible) {
     currentSel = firstEligible.index.toString();
+    container.dataset.selectedIndex = currentSel;
+  }
+
+  const selectedItem = bench.find(item => item.index.toString() === currentSel);
+  if (selectedItem) {
+    trigger.querySelector('.selected-value').innerText = `${selectedItem.player.name} (${getBowlRating(selectedItem.player)} OVR)`;
   }
 
   const build = (selectedIdx) => {
     container.innerHTML = '';
     bench.forEach(item => {
       const div = document.createElement('div');
-      div.className = 'selection-item';
+      div.className = 'dropdown-item';
+      if (!item.eligible) div.classList.add('disabled');
       div.dataset.index = item.index;
       
       const isSelected = selectedIdx === item.index.toString();
       if (isSelected) div.classList.add('selected');
-      if (!item.eligible) div.classList.add('disabled');
       
-      let metaText = `${getBowlRating(item.player)} OVR - ${item.player.bowler_type || 'Bowler'}`;
+      let metaText = item.player.bowler_type || 'Bowler';
       const cleanOvers = item.overs || 0;
       if (cleanOvers > 0) {
         metaText += ` • ${cleanOvers} ov`;
@@ -1169,12 +1224,19 @@ function renderOverBowlerSelectionSheet() {
       }
       
       div.innerHTML = `
-        <span class="selection-item-name">${item.player.name}</span>
-        <span class="selection-item-meta">${metaText}</span>
+        <div class="dropdown-item-info">
+          <span class="dropdown-item-name">${item.player.name}</span>
+          <span class="dropdown-item-meta">${metaText}</span>
+        </div>
+        <span class="dropdown-item-stat">${getBowlRating(item.player)} OVR</span>
       `;
       
       if (item.eligible) {
-        div.onclick = () => {
+        div.onclick = (e) => {
+          e.stopPropagation();
+          container.dataset.selectedIndex = item.index.toString();
+          trigger.querySelector('.selected-value').innerText = `${item.player.name} (${getBowlRating(item.player)} OVR)`;
+          dropdown.classList.remove('open');
           build(item.index.toString());
         };
       }
@@ -1699,6 +1761,11 @@ function createParticles(container, color) {
     container.appendChild(p);
   }
 }
+
+// Close dropdowns when clicking outside
+document.addEventListener('click', () => {
+  document.querySelectorAll('.custom-dropdown').forEach(d => d.classList.remove('open'));
+});
 
 // Start execution
 init();
