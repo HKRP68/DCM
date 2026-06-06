@@ -1077,7 +1077,7 @@
                     <div class="slice-text" data-i="7">500</div>
                     <div class="slice-text" data-i="8">100</div>
                     <div class="slice-text" data-i="9">
-                        <img class="slice-img" src="/assets/players/shreyas_iyer.jpg" alt="Iyer">
+                        <img class="slice-img" src="/assets/players/varun_chakravarthy.jpg" alt="Varun">
                     </div>
                 </div>
                 <div class="wheel-center">⭐</div>
@@ -1086,7 +1086,7 @@
             <!-- Premium Grand Prize Showcase Tag -->
             <div class="grand-prize-tag">
                 <span class="prize-crown">👑</span>
-                <span class="prize-tag-text">Grand Prize: <b>Shreyas Iyer</b> (86 OVR Batsman)</span>
+                <span class="prize-tag-text">Grand Prize: <b>Varun Chakravarthy</b> (85 OVR Bowler)</span>
             </div>
 
             <div style="display: flex; flex-direction: column; gap: 12px; margin-top: 12px;">
@@ -1289,18 +1289,18 @@
                 if (grandPrizeTag) {
                     grandPrizeTag.innerHTML = `
                         <span class="prize-crown">👑</span>
-                        <span class="prize-tag-text">Grand Prize: <b>10,000 Coins</b> (Shreyas Iyer Claimed)</span>
+                        <span class="prize-tag-text">Grand Prize: <b>10,000 Coins</b> (Varun Chakravarthy Claimed)</span>
                     `;
                 }
             } else {
                 if (slice9) {
-                    slice9.innerHTML = '<img class="slice-img" src="/assets/players/shreyas_iyer.jpg" alt="Iyer">';
+                    slice9.innerHTML = '<img class="slice-img" src="/assets/players/varun_chakravarthy.jpg" alt="Varun">';
                     slice9.style.paddingRight = '16px';
                 }
                 if (grandPrizeTag) {
                     grandPrizeTag.innerHTML = `
                         <span class="prize-crown">👑</span>
-                        <span class="prize-tag-text">Grand Prize: <b>Shreyas Iyer</b> (86 OVR Batsman)</span>
+                        <span class="prize-tag-text">Grand Prize: <b>Varun Chakravarthy</b> (85 OVR Bowler)</span>
                     `;
                 }
             }
@@ -1753,8 +1753,12 @@
                     `<div class="player-img-container ${p.tier.toLowerCase()}">
                         <img class="player-img" src="${p.image_url}" alt="${p.name}">
                      </div>` : 
-                    `<div class="player-placeholder-avatar" style="background: ${ovrColor}20; border-color: ${ovrColor}; margin-top: 8px; margin-bottom: 6px;">
-                        <span style="color: ${ovrColor};">${p.name.charAt(0)}</span>
+                    `<div class="player-img-container ${p.tier.toLowerCase()}">
+                        <div class="player-img" style="border-color: ${ovrColor}; display: flex; align-items: center; justify-content: center; background: rgba(23, 28, 47, 0.6); box-shadow: 0 0 10px ${ovrColor}20;">
+                            <svg viewBox="0 0 100 100" style="width: 42px; height: 42px; fill: ${ovrColor}; opacity: 0.7;">
+                                <path d="M50,20 C58.28,20 65,26.72 65,35 C65,43.28 58.28,50 50,50 C41.72,50 35,43.28 35,35 C35,26.72 41.72,20 50,20 Z M50,58 C68.33,58 85,68 85,76 L85,80 L15,80 L15,76 C15,68 31.67,58 50,58 Z"/>
+                            </svg>
+                        </div>
                      </div>`;
 
                 const card = document.createElement('div');
@@ -1906,9 +1910,9 @@
                             if (data.wonPlayer) {
                                 try { tg.HapticFeedback.notificationOccurred('success'); } catch(e) {}
                                 if (data.alreadyOwned) {
-                                    status.innerHTML = `<span style="color:#FFD700; font-size:16px; font-weight:bold; animation: pulse 1.5s infinite; text-shadow: 0 0 10px rgba(255,215,0,0.5);">🎉 JACKPOT! Won Shreyas Iyer! <br><span style="font-size:13px; color:#aaa;">(Already owned, got 10,000 Coins)</span> 🎉</span>`;
+                                    status.innerHTML = `<span style="color:#FFD700; font-size:16px; font-weight:bold; animation: pulse 1.5s infinite; text-shadow: 0 0 10px rgba(255,215,0,0.5);">🎉 JACKPOT! Won Varun Chakravarthy! <br><span style="font-size:13px; color:#aaa;">(Already owned, got 10,000 Coins)</span> 🎉</span>`;
                                 } else {
-                                    status.innerHTML = `<span style="color:#FFD700; font-size:18px; font-weight:bold; animation: pulse 1.5s infinite; text-shadow: 0 0 15px #ffd700;">🎉 JACKPOT! Won Shreyas Iyer! 🎉</span>`;
+                                    status.innerHTML = `<span style="color:#FFD700; font-size:18px; font-weight:bold; animation: pulse 1.5s infinite; text-shadow: 0 0 15px #ffd700;">🎉 JACKPOT! Won Varun Chakravarthy! 🎉</span>`;
                                 }
                             } else if (data.isJackpot) {
                                 try { tg.HapticFeedback.notificationOccurred('success'); } catch(e) {}

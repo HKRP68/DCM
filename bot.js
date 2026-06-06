@@ -12,6 +12,23 @@ const sb = require('./db/supabase');
 const path = require('path');
 const footballPlayers = require('./data/footballPlayers.json');
 const matchManager = require('./game/matchManager');
+
+// Support for legacy pricing to prevent players selling corrected cheap cards for new high prices
+const legacyPrices = require('./db/legacyPrices.json');
+const MIGRATION_CUTOFF = new Date('2026-06-05T09:00:00Z');
+
+function resolvePlayerPrice(player, acquiredAt) {
+  if (player.sport === 'cricket' && acquiredAt) {
+    const acqDate = new Date(acquiredAt);
+    if (acqDate < MIGRATION_CUTOFF) {
+      const legacyPrice = legacyPrices[player.id];
+      if (legacyPrice !== undefined) {
+        return legacyPrice;
+      }
+    }
+  }
+  return player.buy_price;
+}
 const gameConstants = require('./constants/game');
 const ai = require('./game/ai');
 const { DEFAULT_XI } = require('./game/matchManager');
@@ -606,6 +623,350 @@ bot.command('xi', async (ctx) => {
   }
 });
 
+// Helper to draw a rounded rectangle on a canvas context (compatible with older @napi-rs/canvas)
+function drawRoundRect(ctx, x, y, width, height, radius) {
+  if (typeof radius === 'number') {
+    radius = { tl: radius, tr: radius, br: radius, bl: radius };
+  } else {
+    const defaultRadius = { tl: 0, tr: 0, br: 0, bl: 0 };
+    radius = { ...defaultRadius, ...radius };
+  }
+  ctx.beginPath();
+  ctx.moveTo(x + radius.tl, y);
+  ctx.lineTo(x + width - radius.tr, y);
+  ctx.quadraticCurveTo(x + width, y, x + width, y + radius.tr);
+  ctx.lineTo(x + width, y + height - radius.br);
+  ctx.quadraticCurveTo(x + width, y + height, x + width - radius.br, y + height);
+  ctx.lineTo(x + radius.bl, y + height);
+  ctx.quadraticCurveTo(x, y + height, x, y + height - radius.bl);
+  ctx.lineTo(x, y + radius.tl);
+  ctx.quadraticCurveTo(x, y, x + radius.tl, y);
+  ctx.closePath();
+}
+
+bot.command('image', async (ctx) => {
+  if (!sb.supabase) return ctx.reply("Database stats are currently disabled.");
+  const user = ctx.message.reply_to_message?.from || ctx.from;
+  await sb.ensureUser(user.id, user.first_name).catch(() => {});
+
+  // Send a typing/processing action so user knows it's working
+  await ctx.replyWithChatAction('upload_photo').catch(() => {});
+
+  try {
+    const squad = await sb.getUserCricketTeam(user.id);
+    if (!squad || squad.length === 0) {
+      return ctx.reply("🏏 You don't have any cricket players yet! Use /claim to get your starter pack.", { parse_mode: 'HTML' });
+    }
+    if (squad.length < 11) {
+      return ctx.reply(`🏏 You only have <b>${squad.length}</b> player(s). You need at least 11 to form a Playing XI.\n\nUse /claim or /shop to get more players.`, { parse_mode: 'HTML' });
+    }
+
+    const xi = squad.slice(0, 11);
+    const profile = await sb.getProfile(user.id);
+    const teamName = profile && profile.team_name ? profile.team_name : `${user.first_name}'s XI`;
+
+    const { createCanvas, loadImage } = require('@napi-rs/canvas');
+
+    const width = 1200;
+    const height = 820;
+    const canvas = createCanvas(width, height);
+    const ctxCanvas = canvas.getContext('2d');
+
+    // 1. Draw Background Gradient
+    const bgGrad = ctxCanvas.createLinearGradient(0, 0, width, height);
+    bgGrad.addColorStop(0, '#0f1225');
+    bgGrad.addColorStop(0.5, '#131131');
+    bgGrad.addColorStop(1, '#060713');
+    ctxCanvas.fillStyle = bgGrad;
+    ctxCanvas.fillRect(0, 0, width, height);
+
+    // 2. Draw Decorative Grid Pattern
+    ctxCanvas.strokeStyle = 'rgba(124, 58, 237, 0.05)';
+    ctxCanvas.lineWidth = 1;
+    const gridSize = 60;
+    for (let x = 0; x < width; x += gridSize) {
+      ctxCanvas.beginPath();
+      ctxCanvas.moveTo(x, 0);
+      ctxCanvas.lineTo(x, height);
+      ctxCanvas.stroke();
+    }
+    for (let y = 0; y < height; y += gridSize) {
+      ctxCanvas.beginPath();
+      ctxCanvas.moveTo(0, y);
+      ctxCanvas.lineTo(width, y);
+      ctxCanvas.stroke();
+    }
+
+    // Draw glowing stadium arch effect
+    ctxCanvas.fillStyle = 'rgba(79, 70, 229, 0.08)';
+    ctxCanvas.beginPath();
+    ctxCanvas.arc(width / 2, height + 100, 500, Math.PI, 0);
+    ctxCanvas.fill();
+
+    // 3. Draw Header
+    ctxCanvas.fillStyle = '#ffffff';
+    ctxCanvas.font = 'bold 36px sans-serif';
+    ctxCanvas.textAlign = 'center';
+    ctxCanvas.fillText('PLAYING XI', width / 2, 65);
+
+    ctxCanvas.fillStyle = '#a78bfa';
+    ctxCanvas.font = 'italic 22px sans-serif';
+    ctxCanvas.fillText(`"${teamName}"`, width / 2, 100);
+
+    const teamRating = Math.round(xi.reduce((sum, p) => sum + (p.ovr || 0), 0) / 11);
+    
+    // Draw OVR badge on the right
+    ctxCanvas.fillStyle = 'rgba(167, 139, 250, 0.15)';
+    ctxCanvas.beginPath();
+    ctxCanvas.arc(1080, 75, 45, 0, Math.PI * 2);
+    ctxCanvas.fill();
+    ctxCanvas.strokeStyle = '#a78bfa';
+    ctxCanvas.lineWidth = 2;
+    ctxCanvas.stroke();
+
+    ctxCanvas.fillStyle = '#ffffff';
+    ctxCanvas.font = 'bold 28px sans-serif';
+    ctxCanvas.fillText(String(teamRating), 1080, 73);
+    ctxCanvas.fillStyle = '#a78bfa';
+    ctxCanvas.font = 'bold 12px sans-serif';
+    ctxCanvas.fillText('TEAM OVR', 1080, 95);
+
+    // Helper functions for colors and roles
+    const getOvrColor = (ovr) => {
+      if (ovr >= 90) return '#ff007f'; // Legendary pink
+      if (ovr >= 80) return '#ffd700'; // Gold
+      if (ovr >= 70) return '#82b1ff'; // Silver
+      return '#cd7f32'; // Bronze
+    };
+
+    const roleIcon = (role) => {
+      if (role === 'batsman') return '🏏';
+      if (role === 'wicket_keeper') return '🧤';
+      if (role === 'all_rounder') return '⚡';
+      if (role === 'bowler') return '🥎';
+      return '👤';
+    };
+
+    const countryFlags = {
+      'India': '🇮🇳',
+      'Australia': '🇦🇺',
+      'England': '🏴󠁧󠁢󠁥󠁮󠁧󠁿',
+      'South Africa': '🇿🇦',
+      'Pakistan': '🇵🇰',
+      'New Zealand': '🇳🇿',
+      'West Indies': '🌴',
+      'Sri Lanka': '🇱🇰',
+      'Bangladesh': '🇧🇩',
+      'Afghanistan': '🇦🇫',
+      'Ireland': '🇮🇪',
+      'Zimbabwe': '🇿🇼',
+      'Netherlands': '🇳🇱',
+      'Nepal': '🇳🇵',
+      'Scotland': '🏴󠁧󠁢󠁳󠁣󠁴󠁿',
+      'USA': '🇺🇸',
+      'Canada': '🇨🇦',
+      'Oman': '🇴🇲',
+      'UAE': '🇦🇪',
+      'Namibia': '🇳🇦'
+    };
+
+    // Pre-load all player images in parallel (trying local cache first, then database/remote url)
+    const loadedImages = await Promise.all(
+      xi.map(async (p) => {
+        const localPath = getCricketPlayerLocalImagePath(p.name);
+        if (localPath) {
+          try {
+            return await loadImage(localPath);
+          } catch (err) {
+            console.error(`Failed to load local avatar for ${p.name} from ${localPath}:`, err);
+          }
+        }
+        
+        if (p.image_url) {
+          // If it's a relative path starting with /assets/players/, map to local file
+          if (p.image_url.startsWith('/assets/players/')) {
+            const relativeFilename = p.image_url.replace('/assets/players/', '').toLowerCase();
+            const actualFilename = cricketImageCache.get(relativeFilename);
+            if (actualFilename) {
+              const fullLocalPath = path.join(crickidexPlayersDir, actualFilename);
+              try {
+                return await loadImage(fullLocalPath);
+              } catch (err) {
+                console.error(`Failed to load avatar from mapped image_url path for ${p.name}:`, err);
+              }
+            }
+          } else if (p.image_url.startsWith('http')) {
+            // It's a remote Wikipedia URL
+            try {
+              const axios = require('axios');
+              const response = await axios.get(p.image_url, {
+                responseType: 'arraybuffer',
+                headers: {
+                  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                },
+                timeout: 6000
+              });
+              return await loadImage(Buffer.from(response.data));
+            } catch (err) {
+              console.error(`Failed to load remote avatar for ${p.name} from ${p.image_url}:`, err.message);
+            }
+          }
+        }
+        return null;
+      })
+    );
+
+    // 4. Render Grid of 11 Player Cards
+    const cardWidth = 240;
+    const cardHeight = 180;
+
+    const positions = [];
+
+    // Row 1 (y = 150)
+    let marginRow1 = (width - (4 * cardWidth)) / 5;
+    for (let i = 0; i < 4; i++) {
+      positions.push({ x: marginRow1 + i * (cardWidth + marginRow1), y: 150 });
+    }
+
+    // Row 2 (y = 370)
+    let marginRow2 = (width - (4 * cardWidth)) / 5;
+    for (let i = 0; i < 4; i++) {
+      positions.push({ x: marginRow2 + i * (cardWidth + marginRow2), y: 370 });
+    }
+
+    // Row 3 (y = 590) - centered 3 players
+    let marginRow3 = (width - (3 * cardWidth)) / 4;
+    for (let i = 0; i < 3; i++) {
+      positions.push({ x: marginRow3 + i * (cardWidth + marginRow3), y: 590 });
+    }
+
+    for (let i = 0; i < 11; i++) {
+      const p = xi[i];
+      const pos = positions[i];
+      const ovrColor = getOvrColor(p.ovr);
+      const img = loadedImages[i];
+
+      // Draw glass card body
+      ctxCanvas.save();
+      drawRoundRect(ctxCanvas, pos.x, pos.y, cardWidth, cardHeight, 16);
+      ctxCanvas.clip();
+
+      const cardGrad = ctxCanvas.createLinearGradient(pos.x, pos.y, pos.x, pos.y + cardHeight);
+      cardGrad.addColorStop(0, '#171c2f');
+      cardGrad.addColorStop(1, '#0e111d');
+      ctxCanvas.fillStyle = cardGrad;
+      ctxCanvas.fill();
+
+      ctxCanvas.strokeStyle = p.tier === 'Legendary' ? '#ff007f' : p.tier === 'Gold' ? '#ffd700' : 'rgba(255, 255, 255, 0.15)';
+      ctxCanvas.lineWidth = p.tier === 'Legendary' || p.tier === 'Gold' ? 2 : 1;
+      ctxCanvas.stroke();
+
+      const shadowGrad = ctxCanvas.createRadialGradient(
+        pos.x + cardWidth/2, pos.y + cardHeight/2, 10,
+        pos.x + cardWidth/2, pos.y + cardHeight/2, cardWidth/2
+      );
+      shadowGrad.addColorStop(0, 'rgba(0,0,0,0)');
+      shadowGrad.addColorStop(1, 'rgba(0,0,0,0.4)');
+      ctxCanvas.fillStyle = shadowGrad;
+      ctxCanvas.fill();
+
+      ctxCanvas.restore();
+
+      // Draw OVR rating badge
+      ctxCanvas.fillStyle = ovrColor;
+      drawRoundRect(ctxCanvas, pos.x + 12, pos.y + 12, 64, 24, 6);
+      ctxCanvas.fill();
+
+      ctxCanvas.fillStyle = '#000000';
+      ctxCanvas.font = 'bold 12px sans-serif';
+      ctxCanvas.textAlign = 'center';
+      ctxCanvas.fillText(`${p.ovr} OVR`, pos.x + 44, pos.y + 28);
+
+      // Draw Pos Number
+      ctxCanvas.fillStyle = 'rgba(255,255,255,0.1)';
+      ctxCanvas.beginPath();
+      ctxCanvas.arc(pos.x + 90, pos.y + 24, 12, 0, Math.PI * 2);
+      ctxCanvas.fill();
+      ctxCanvas.fillStyle = '#ffffff';
+      ctxCanvas.font = '10px sans-serif';
+      ctxCanvas.fillText(String(i + 1), pos.x + 90, pos.y + 27);
+
+      // Draw Role icon
+      ctxCanvas.fillStyle = 'rgba(255, 255, 255, 0.1)';
+      ctxCanvas.beginPath();
+      ctxCanvas.arc(pos.x + cardWidth - 24, pos.y + 24, 16, 0, Math.PI * 2);
+      ctxCanvas.fill();
+      ctxCanvas.font = '14px sans-serif';
+      ctxCanvas.fillText(roleIcon(p.role), pos.x + cardWidth - 24, pos.y + 29);
+
+      const avX = pos.x + cardWidth / 2;
+      const avY = pos.y + 85;
+      const avRadius = 34;
+
+      if (img) {
+        ctxCanvas.save();
+        ctxCanvas.beginPath();
+        ctxCanvas.arc(avX, avY, avRadius, 0, Math.PI * 2);
+        ctxCanvas.clip();
+        ctxCanvas.drawImage(img, avX - avRadius, avY - avRadius, avRadius * 2, avRadius * 2);
+        ctxCanvas.restore();
+
+        ctxCanvas.strokeStyle = ovrColor;
+        ctxCanvas.lineWidth = 2;
+        ctxCanvas.beginPath();
+        ctxCanvas.arc(avX, avY, avRadius, 0, Math.PI * 2);
+        ctxCanvas.stroke();
+      } else {
+        ctxCanvas.save();
+        ctxCanvas.beginPath();
+        ctxCanvas.arc(avX, avY, avRadius, 0, Math.PI * 2);
+        ctxCanvas.clip();
+
+        ctxCanvas.fillStyle = '#111422';
+        ctxCanvas.fill();
+
+        ctxCanvas.fillStyle = ovrColor;
+        ctxCanvas.beginPath();
+        ctxCanvas.arc(avX, avY - 3, avRadius * 0.4, 0, Math.PI * 2);
+        ctxCanvas.fill();
+
+        ctxCanvas.beginPath();
+        ctxCanvas.arc(avX, avY + avRadius * 1.05, avRadius * 0.82, Math.PI, 0, false);
+        ctxCanvas.fill();
+
+        ctxCanvas.restore();
+
+        ctxCanvas.strokeStyle = ovrColor;
+        ctxCanvas.lineWidth = 1.5;
+        ctxCanvas.beginPath();
+        ctxCanvas.arc(avX, avY, avRadius, 0, Math.PI * 2);
+        ctxCanvas.stroke();
+      }
+
+      // Draw Player Name
+      ctxCanvas.fillStyle = '#ffffff';
+      ctxCanvas.font = 'bold 14px sans-serif';
+      ctxCanvas.textAlign = 'center';
+      ctxCanvas.fillText(p.name, pos.x + cardWidth/2, pos.y + 142);
+
+      const flag = countryFlags[p.country] || '🏳️';
+      ctxCanvas.fillStyle = 'rgba(255, 255, 255, 0.4)';
+      ctxCanvas.font = '10px sans-serif';
+      ctxCanvas.fillText(`${(p.role || '').toUpperCase().replace('_', ' ')}  ${flag} ${p.country || 'N/A'}`, pos.x + cardWidth/2, pos.y + 162);
+    }
+
+    const buffer = canvas.toBuffer('image/png');
+    await ctx.replyWithPhoto(new InputFile(buffer, 'playing11.png'), {
+      caption: `🏏 <b>PLAYING XI — ${escapeHTML(teamName)}</b>\n\n📊 <b>XI Rating:</b> <code>${teamRating} OVR</code>\n\n💡 <i>Use <code>/swap [pos1] [pos2]</code> to swap players.</i>`,
+      parse_mode: 'HTML'
+    });
+
+  } catch (e) {
+    console.error("Error in /image command:", e);
+    await ctx.reply("❌ Failed to generate the Playing XI image. Please try again.");
+  }
+});
+
 bot.command('swap', async (ctx) => {
   if (!sb.supabase) return ctx.reply("Database stats are currently disabled.");
 
@@ -683,12 +1044,14 @@ bot.command('sell', async (ctx) => {
       p.name.toLowerCase().includes(query.toLowerCase())
     );
     matchedCricket.forEach(p => {
+      const ownedRecord = owned.find(o => o.player_id === p.id && o.sport === 'cricket');
       matches.push({
         id: p.id,
         name: p.name,
         ovr: p.ovr,
         buy_price: p.buy_price,
-        sport: 'cricket'
+        sport: 'cricket',
+        acquired_at: ownedRecord ? ownedRecord.acquired_at : null
       });
     });
 
@@ -731,13 +1094,14 @@ bot.command('sell', async (ctx) => {
 
     // Exactly one player match
     const player = matches[0];
-    const sellPrice = Math.round(player.buy_price * 0.55);
+    const actualBuyPrice = resolvePlayerPrice(player, player.acquired_at);
+    const sellPrice = Math.round(actualBuyPrice * 0.55);
 
     const text = `⚠️ <b>Confirm Player Sale</b>\n\n` +
                  `Are you sure you want to sell <b>${escapeHTML(player.name)}</b>?\n` +
                  `• OVR: <b>${player.ovr}</b>\n` +
                  `• Sport: <b>${player.sport === 'cricket' ? '🏏 Cricket' : '⚽ Football'}</b>\n` +
-                 `• Original Price: 💰 <b>${player.buy_price.toLocaleString()}</b>\n\n` +
+                 `• Original Price: 💰 <b>${actualBuyPrice.toLocaleString()}</b>\n\n` +
                  `💰 You will receive: <b>${sellPrice.toLocaleString()} coins</b>.\n\n` +
                  `<i>Do you want to proceed?</i>`;
 
@@ -783,7 +1147,7 @@ bot.command('spin', async (ctx) => {
     const kb = new InlineKeyboard().url("🎡 Spin the Lucky Wheel", directLink);
     
     await ctx.reply(
-        "🎡 <b>Lucky Spin Wheel</b>\n\nTry your luck! Spin the wheel to win the Grand Prize: 👑 <b>Shreyas Iyer</b> (86 OVR Batsman)!\n\n<i>You get 1 free spin every 24 hours. Additional spins require watching a short ad.</i>",
+        "🎡 <b>Lucky Spin Wheel</b>\n\nTry your luck! Spin the wheel to win the Grand Prize: 👑 <b>Varun Chakravarthy</b> (85 OVR Bowler)!\n\n<i>You get 1 free spin every 24 hours. Additional spins require watching a short ad.</i>",
         { parse_mode: 'HTML', reply_markup: kb }
     );
 });
@@ -958,9 +1322,17 @@ bot.command('remove', async (ctx) => {
     }
   }
 
+  const cricLobby = getUserActiveLobby(targetUserId);
+  if (cricLobby) {
+    const chatId = cricLobby.chatId;
+    delete activeLobbies[chatId];
+    await ctx.reply(`✅ Successfully cancelled the active cricket match lobby in chat <code>${chatId}</code> for User ID <code>${targetUserId}</code>.`, { parse_mode: 'HTML' });
+    return;
+  }
+
   const match = matchManager.getActiveMatch(targetUserId);
   if (!match) {
-    return ctx.reply(`❌ No active cricket match found for User ID <code>${targetUserId}</code>.`, { parse_mode: 'HTML' });
+    return ctx.reply(`❌ No active cricket match or lobby found for User ID <code>${targetUserId}</code>.`, { parse_mode: 'HTML' });
   }
 
   match.status = 'completed';
@@ -1127,8 +1499,8 @@ bot.command('cric', async (ctx) => {
   const args = ctx.match ? ctx.match.trim().split(/\s+/) : [];
   const overs = args[0] ? parseInt(args[0]) : 1;
   
-  if (isNaN(overs) || overs < 1 || overs > 5) {
-    return ctx.reply("ℹ️ <b>Usage:</b> <code>/cric &lt;overs (1-5)&gt;</code> to start a match lobby.", { parse_mode: 'HTML' });
+  if (isNaN(overs) || overs < 1 || overs > 20) {
+    return ctx.reply("ℹ️ <b>Usage:</b> <code>/cric &lt;overs (1-20)&gt;</code> to start a match lobby.", { parse_mode: 'HTML' });
   }
 
   const telegramId = ctx.from.id;
@@ -1172,12 +1544,13 @@ bot.command('cric', async (ctx) => {
       },
       guest: null,
       status: 'waiting_join',
-      overs
+      overs,
+      createdAt: Date.now()
     };
 
     const keyboard = new InlineKeyboard()
-      .text('🤝 Join Match', 'cric_join')
-      .text('❌ Cancel Lobby', 'cric_cancel_lobby');
+      .text('🤝 Join', 'cric_join')
+      .text('❌ Cancel', 'cric_cancel_lobby');
     
     await ctx.reply(
       `🏏 <b>CRICKET MATCH LOBBY CREATED!</b> 🏏\n` +
@@ -1960,6 +2333,29 @@ async function handleBJStand(ctx, state) {
 
 bot.command('quit', async (ctx) => {
   const userId = ctx.from.id;
+
+  // Check for Cricket match lobby
+  const cricLobby = getUserActiveLobby(userId);
+  if (cricLobby) {
+      const chatId = cricLobby.chatId;
+      delete activeLobbies[chatId];
+      try {
+          await bot.api.sendMessage(chatId, `🛑 <a href="tg://user?id=${userId}">${escapeHTML(ctx.from.first_name)}</a> has quit the cricket lobby. The lobby has been cancelled.`, { parse_mode: 'HTML' });
+      } catch (e) {}
+      return ctx.reply("✅ You quit the cricket match lobby. The lobby has been cancelled.");
+  }
+
+  // Check for Guess the Word game
+  for (const [cid, gGame] of guessManager.getAllGames().entries()) {
+      if (gGame.host && gGame.host.id === userId) {
+          guessManager.endGame(cid);
+          try {
+              await bot.api.sendMessage(cid, `🛑 <a href="tg://user?id=${userId}">${escapeHTML(ctx.from.first_name)}</a> has quit. The Guess the Word game has been ended.`, { parse_mode: 'HTML' });
+          } catch(e) {}
+          return ctx.reply("✅ You quit the Guess the Word game.");
+      }
+  }
+
   const regularLobby = gameManager.getLobbyByUserId(userId);
   const mafiaLobby = mafiaManager.getLobbyByUserId(userId);
   
@@ -3306,7 +3702,12 @@ bot.on('callback_query:data', async (ctx) => {
         return;
       }
 
-      const sellPrice = Math.round(player.buy_price * 0.55);
+      const owned = await sb.getUserOwnedPlayers(userId);
+      const ownedRecord = owned.find(o => o.player_id === playerId && o.sport === sport);
+      const acquiredAt = ownedRecord ? ownedRecord.acquired_at : null;
+
+      const actualBuyPrice = resolvePlayerPrice(player, acquiredAt);
+      const sellPrice = Math.round(actualBuyPrice * 0.55);
       const result = await sb.sellPlayer(userId, player.id, sport, sellPrice);
       
       if (result.success) {
@@ -4274,6 +4675,37 @@ try {
     console.error('[Shop] Error building image cache:', error);
 }
 
+// Helper to resolve player name to local filesystem path
+function getCricketPlayerLocalImagePath(name) {
+    if (!name) return null;
+    
+    // 1. Try formatted First_Last.jpg
+    const formattedName = name.trim().replace(/\s+/g, '_').toLowerCase();
+    const filenameJpg = `${formattedName}.jpg`;
+    if (cricketImageCache.has(filenameJpg)) {
+        return path.join(crickidexPlayersDir, cricketImageCache.get(filenameJpg));
+    }
+    
+    // 2. Try removing special characters
+    const cleanName = name.replace(/[^a-zA-Z0-9\s]/g, '').trim().replace(/\s+/g, '_').toLowerCase();
+    const cleanFilenameJpg = `${cleanName}.jpg`;
+    if (cricketImageCache.has(cleanFilenameJpg)) {
+        return path.join(crickidexPlayersDir, cricketImageCache.get(cleanFilenameJpg));
+    }
+
+    // 3. Try matches in filename list where the filename contains all parts of the name
+    const nameParts = formattedName.split('_');
+    if (nameParts.length > 0) {
+        for (const [key, value] of cricketImageCache.entries()) {
+            if (nameParts.every(part => key.includes(part))) {
+                return path.join(crickidexPlayersDir, value);
+            }
+        }
+    }
+    
+    return null;
+}
+
 // Helper to resolve player name to static image URL
 function getCricketPlayerImageUrl(name) {
     if (!name) return null;
@@ -4399,7 +4831,7 @@ app.get('/api/user-stats', async (req, res) => {
             spinCooldownRemaining = spinRemainingMs > 0 ? spinRemainingMs : 0;
         }
 
-        const jackpotPlayerId = 'd592f282-82ae-4493-9b17-bd1eff00ee36';
+        const jackpotPlayerId = '9f29976c-ce6d-4e9e-9f25-7eec9a053848';
         const jackpotClaimed = await sb.checkJackpotClaimed(userId, jackpotPlayerId);
 
         res.json({
@@ -4453,7 +4885,7 @@ app.get('/api/spin', async (req, res) => {
         let newBal = 0;
 
         if (isJackpot) {
-            const jackpotPlayerId = 'd592f282-82ae-4493-9b17-bd1eff00ee36';
+            const jackpotPlayerId = '9f29976c-ce6d-4e9e-9f25-7eec9a053848';
             const hasClaimed = await sb.checkJackpotClaimed(userId, jackpotPlayerId);
             if (hasClaimed) {
                 alreadyOwned = true;
@@ -4485,7 +4917,7 @@ app.get('/api/spin', async (req, res) => {
                     (async () => {
                         try {
                             const message = `🎉 <b>LUCKY SPIN JACKPOT!</b> 🎉\n\n` +
-                                            `👤 <a href="tg://user?id=${userId}">${escapeHTML(userName)}</a> just won 👑 <b>Shreyas Iyer</b> (86 OVR Batsman) in the Lucky Spin! 🎡\n\n` +
+                                            `👤 <a href="tg://user?id=${userId}">${escapeHTML(userName)}</a> just won 👑 <b>Varun Chakravarthy</b> (85 OVR Bowler) in the Lucky Spin! 🎡\n\n` +
                                             `Congratulations! 🥳`;
                             try {
                                 await bot.api.sendMessage(OFFICIAL_GC_ID, message, { parse_mode: 'HTML' });
@@ -4778,15 +5210,42 @@ app.post('/api/match/action', async (req, res) => {
     if (isBatting) return res.status(400).json({ error: 'You are batting, cannot bowl!' });
     if (match.turnState !== 'bowling_delivery') return res.status(400).json({ error: 'Not in bowling delivery phase.' });
 
-    match.currentDelivery = action.delivery;
-    match.currentSpeed = action.speed || 'normal';
+    if (action.isMysteryBall) {
+      const bowlerType = (match.currentBowler?.bowler_type || '').toLowerCase();
+      const isSpin = bowlerType.includes('spin');
+      if (!isSpin) {
+        return res.status(400).json({ error: 'Mystery ball is only available for spin bowlers.' });
+      }
+      if (match.mysteryBallBowledThisOver) {
+        return res.status(400).json({ error: 'You can only bowl one mystery ball per over.' });
+      }
+      match.isMysteryBall = true;
+      match.mysteryBallBowledThisOver = true;
+      
+      const isOffSpin = bowlerType.includes('off') || bowlerType.includes('offspin') || bowlerType.includes('off-spin');
+      let spinDeliveries = [];
+      if (isOffSpin) {
+        spinDeliveries = ['off_break', 'carrom_ball', 'arm_ball', 'doosra', 'top_spinner_off'];
+      } else {
+        spinDeliveries = ['leg_break', 'googly', 'flipper', 'top_spinner_leg', 'slider'];
+      }
+      const randomIdx = Math.floor(Math.random() * spinDeliveries.length);
+      match.currentDelivery = spinDeliveries[randomIdx];
+      match.currentSpeed = 'normal';
+    } else {
+      match.isMysteryBall = false;
+      match.currentDelivery = action.delivery;
+      match.currentSpeed = action.speed || 'normal';
+    }
     match.lastDeliveryKmph = generateDeliveryKmph(match.currentBowler.bowler_type || 'fast', match.currentSpeed);
     match.turnState = 'batting_shot';
 
     matchManager.saveToDb(match);
 
     if (match.type === 'pve' && match.battingTeam.telegramId === 'ai') {
-      match.currentShot = ai.getAIShot(match.striker, match.currentDelivery, match.currentSpeed);
+      const aiDelivery = match.isMysteryBall ? 'mystery_ball' : match.currentDelivery;
+      const aiSpeed = match.isMysteryBall ? 'normal' : match.currentSpeed;
+      match.currentShot = ai.getAIShot(match.striker, aiDelivery, aiSpeed);
       await processBallAndProgress(null, match);
     } else {
       await runGameLoopStep(null, match, false);
@@ -5044,8 +5503,9 @@ function serializeMatchState(match, userId) {
     bowlingXI: match.bowlingTeam ? match.bowlingTeam.xi : [],
     stats: match.stats,
     commentary: match.commentary,
-    currentDelivery: match.currentDelivery,
-    currentSpeed: match.currentSpeed,
+    currentDelivery: (match.isMysteryBall && isBatting) ? 'mystery_ball' : match.currentDelivery,
+    currentSpeed: (match.isMysteryBall && isBatting) ? 'normal' : match.currentSpeed,
+    mysteryBallBowledThisOver: match.mysteryBallBowledThisOver || false,
     lastBall: match.lastBallOutcome ? {
       runs: match.lastBallOutcome.runs,
       isWicket: match.lastBallOutcome.isWicket,
@@ -5156,6 +5616,14 @@ async function runGameLoopStep(ctx, match, forceNewMessage = false) {
           match.currentDelivery = aiBowl.delivery;
           match.currentSpeed = aiBowl.speed;
           match.lastDeliveryKmph = generateDeliveryKmph(match.currentBowler.bowler_type || 'fast', aiBowl.speed);
+          
+          if (!match.mysteryBallBowledThisOver && Math.random() < 0.25) {
+            match.isMysteryBall = true;
+            match.mysteryBallBowledThisOver = true;
+          } else {
+            match.isMysteryBall = false;
+          }
+          
           match.turnState = 'batting_shot';
         }
       }
@@ -5206,14 +5674,24 @@ async function processBallAndProgress(ctx, match) {
 
   const outcome = match.bowlBall();
 
-  match.commentary.unshift({
-    over: `${Math.floor((match.currentInnings.balls - 1) / 6)}.${(match.currentInnings.balls - 1) % 6 + 1}`,
-    text: outcome.commentary,
-    runs: outcome.runs,
-    isWicket: outcome.isWicket
-  });
+  if (outcome.isExtra) {
+    match.commentary.unshift({
+      over: `${Math.floor(match.currentInnings.balls / 6)}.${match.currentInnings.balls % 6} (Extra)`,
+      text: outcome.commentary,
+      runs: outcome.runs,
+      isWicket: false,
+      isExtra: true
+    });
+  } else {
+    match.commentary.unshift({
+      over: `${Math.floor((match.currentInnings.balls - 1) / 6)}.${(match.currentInnings.balls - 1) % 6 + 1}`,
+      text: outcome.commentary,
+      runs: outcome.runs,
+      isWicket: outcome.isWicket
+    });
+  }
 
-  if (match.currentInnings.balls % 6 === 0) {
+  if (!outcome.isExtra && match.currentInnings.balls % 6 === 0) {
     const overNum = Math.floor(match.currentInnings.balls / 6);
     const lastEndRuns = match.lastOverEndRuns || 0;
     const runsThisOver = match.currentInnings.runs - lastEndRuns;
@@ -5275,72 +5753,83 @@ async function processBallAndProgress(ctx, match) {
         match.startSecondInnings();
         await runGameLoopStep(null, match, true);
       } else {
-        const result = await match.finalizeMatch();
-        
-        match.commentary.unshift({
-          type: 'end_of_innings',
-          inningsIdx: 1,
-          runs: result.inn2Runs,
-          wickets: result.inn2Wickets,
-          overs: result.inn2Overs,
-          winner: result.winner ? result.winner.username : 'Tie Match',
-          motm: result.motm
-        });
-
-        let marginText = '';
-        if (result.winner) {
-          const inn1 = match.innings[0];
-          const inn2 = match.innings[1];
-          const isWinnerInn2 = result.winner.telegramId.toString() === inn2.battingId.toString();
-          
-          if (isWinnerInn2) {
-            const wicketsWonBy = 10 - inn2.wickets;
-            marginText = `won by ${wicketsWonBy} wicket${wicketsWonBy > 1 ? 's' : ''}`;
-          } else {
-            const runsWonBy = inn1.runs - inn2.runs;
-            marginText = `won by ${runsWonBy} run${runsWonBy > 1 ? 's' : ''}`;
-          }
-        }
-
-        let summary;
-        if (result.winner) {
-          summary = `🏆 <b>MATCH COMPLETED!</b>\n\n🎉 <b>${escapeHTML(result.winner.username)}</b> ${marginText}!`;
-        } else {
-          summary = `🏆 <b>MATCH COMPLETED!</b>\n\n🤝 <b>Match Tied!</b>`;
-        }
-
-        const botUsername = botInfo?.username || 'Imposter0_bot';
-        const playUrl = getMatchPlayUrl(match);
-        const isPrivate = match.chatId > 0;
-        
-        let buttonObj;
-        if (isPrivate) {
-          buttonObj = { text: "↗️ View Match Details", web_app: { url: playUrl } };
-        } else {
-          const directLink = `https://t.me/${botUsername}/bonus?startapp=cricket_${match.id}_${match.chatId}`;
-          buttonObj = { text: "↗️ View Match Details", url: directLink };
-        }
-
-        const reply_markup = {
-          inline_keyboard: [
-            [buttonObj]
-          ]
-        };
-
         try {
-          const photoBuffer = await generateScoreboardImage(match, result, marginText);
-          if (photoBuffer) {
-            await bot.api.sendPhoto(match.chatId, new InputFile(photoBuffer, 'scoreboard.png'), {
-              caption: summary,
-              reply_markup,
-              parse_mode: 'HTML'
-            });
+          const result = await match.finalizeMatch();
+          
+          match.commentary.unshift({
+            type: 'end_of_innings',
+            inningsIdx: 1,
+            runs: result?.inn2Runs || 0,
+            wickets: result?.inn2Wickets || 0,
+            overs: result?.inn2Overs || '0.0',
+            winner: result?.winner ? result.winner.username : 'Tie Match',
+            motm: result?.motm || null
+          });
+
+          let marginText = '';
+          if (result && result.winner) {
+            const inn1 = match.innings[0];
+            const inn2 = match.innings[1];
+            const winnerId = result.winner.telegramId ? result.winner.telegramId.toString() : '';
+            const inn2BattingId = inn2?.battingId ? inn2.battingId.toString() : '';
+            const isWinnerInn2 = winnerId && winnerId === inn2BattingId;
+            
+            if (isWinnerInn2) {
+              const wicketsWonBy = 10 - (inn2?.wickets || 0);
+              marginText = `won by ${wicketsWonBy} wicket${wicketsWonBy > 1 ? 's' : ''}`;
+            } else {
+              const runsWonBy = (inn1?.runs || 0) - (inn2?.runs || 0);
+              marginText = `won by ${runsWonBy} run${runsWonBy > 1 ? 's' : ''}`;
+            }
+          }
+
+          let summary;
+          if (result && result.winner) {
+            summary = `🏆 <b>MATCH COMPLETED!</b>\n\n🎉 <b>${escapeHTML(result.winner.username)}</b> ${marginText}!`;
           } else {
+            summary = `🏆 <b>MATCH COMPLETED!</b>\n\n🤝 <b>Match Tied!</b>`;
+          }
+
+          const botUsername = botInfo?.username || 'Imposter0_bot';
+          const playUrl = getMatchPlayUrl(match);
+          const isPrivate = match.chatId > 0;
+          
+          let buttonObj;
+          if (isPrivate) {
+            buttonObj = { text: "↗️ View Match Details", web_app: { url: playUrl } };
+          } else {
+            const directLink = `https://t.me/${botUsername}/bonus?startapp=cricket_${match.id}_${match.chatId}`;
+            buttonObj = { text: "↗️ View Match Details", url: directLink };
+          }
+
+          const reply_markup = {
+            inline_keyboard: [
+              [buttonObj]
+            ]
+          };
+
+          try {
+            const photoBuffer = await generateScoreboardImage(match, result, marginText);
+            if (photoBuffer) {
+              await bot.api.sendPhoto(match.chatId, new InputFile(photoBuffer, 'scoreboard.png'), {
+                caption: summary,
+                reply_markup,
+                parse_mode: 'HTML'
+              });
+            } else {
+              await sendTelegramMessage(match, summary, { reply_markup });
+            }
+          } catch (err) {
+            console.error("Failed to send scoreboard photo, falling back to text:", err);
             await sendTelegramMessage(match, summary, { reply_markup });
           }
-        } catch (err) {
-          console.error("Failed to send scoreboard photo, falling back to text:", err);
-          await sendTelegramMessage(match, summary, { reply_markup });
+        } catch (finalizeErr) {
+          console.error("Error during match completion/finalization:", finalizeErr);
+          try {
+            await sendTelegramMessage(match, "🏆 <b>MATCH COMPLETED!</b>\n\nAn error occurred while rendering the final scoreboard, but the match has ended.");
+          } catch (msgErr) {
+            console.error("Failed to send fallback completion message:", msgErr);
+          }
         }
       }
     } else {
@@ -5353,7 +5842,7 @@ async function processBallAndProgress(ctx, match) {
         }
       }
       
-      const overCompleted = match.currentInnings.balls % 6 === 0;
+      const overCompleted = !outcome.isExtra && (match.currentInnings.balls % 6 === 0);
       if (overCompleted && match.currentInnings.balls > 0) {
         if (match.bowlingTeam.telegramId === 'ai') {
           match.selectBestBowler();
@@ -5367,7 +5856,7 @@ async function processBallAndProgress(ctx, match) {
         }
       }
 
-      if (!match.turnState || match.turnState === 'batting_shot') {
+      if (!match.turnState || match.turnState === 'batting_shot' || outcome.isExtra) {
         match.turnState = 'bowling_delivery';
       }
 
@@ -5379,8 +5868,8 @@ async function processBallAndProgress(ctx, match) {
 async function handleMatchTermination(match, quittingUserId = null, reason = "quit") {
   try {
     const ballsBowled = (match.innings[0]?.balls || 0) + (match.innings[1]?.balls || 0);
-    const hostId = match.host.telegramId.toString();
-    const guestId = match.guest.telegramId.toString();
+    const hostId = match.host?.telegramId ? match.host.telegramId.toString() : '';
+    const guestId = match.guest?.telegramId ? match.guest.telegramId.toString() : '';
 
     let inactiveId = null;
     let activeId = null;
@@ -5391,7 +5880,7 @@ async function handleMatchTermination(match, quittingUserId = null, reason = "qu
     } else {
       // Inactivity timeout: determine whose turn it was
       if (match.status === 'xi_selection') {
-        const isHostBatting = match.innings[0].battingId && match.host.telegramId && (match.innings[0].battingId.toString() === match.host.telegramId.toString());
+        const isHostBatting = match.innings[0]?.battingId && match.host?.telegramId && (match.innings[0].battingId.toString() === match.host.telegramId.toString());
         const battingConfirmed = match.strikerIdx !== null && match.nonStrikerIdx !== null;
         const bowlingConfirmed = match.currentBowlerIdx !== null;
         const hostConfirmed = isHostBatting ? battingConfirmed : bowlingConfirmed;
@@ -5471,8 +5960,8 @@ async function handleMatchTermination(match, quittingUserId = null, reason = "qu
       // Award coins to active player
       await sb.addCoins(activeId, compensation);
       // Record win/loss
-      await sb.recordLoss(inactiveId, 'cricket');
-      await sb.recordWin(activeId, 'cricket');
+      await sb.recordLoss(inactiveId, inactiveName, match.chatId);
+      await sb.recordWin(activeId, activeName, match.chatId);
     } catch (dbErr) {
       console.error("Failed to update database for match termination:", dbErr);
     }
@@ -5552,7 +6041,7 @@ if (require.main === module) {
     { command: "mafia", description: "Start a Mafia lobby" },
     { command: "lies", description: "Challenge someone to Game of Lies" },
     { command: "drop", description: "🎁 Mystery Coin Drop (300-5000)" },
-    { command: "spin", description: "🎡 Spin the wheel to win Shreyas Iyer" },
+    { command: "spin", description: "🎡 Spin the wheel to win Varun Chakravarthy" },
     { command: "hilo", description: "Play High-Low Cricket Stats" },
     { command: "fly", description: "Bet on the crashing plane" },
     { command: "dice", description: "🎲 Roll 2 dice (7 Up 7 Down)" },
@@ -5595,6 +6084,14 @@ if (require.main === module) {
   setInterval(async () => {
     const ONE_HOUR = 1 * 60 * 60 * 1000;
     const now = Date.now();
+
+    // Cleanup Cricket Lobbies
+    for (const [chatId, lobby] of Object.entries(activeLobbies)) {
+      if (lobby.createdAt && (now - lobby.createdAt) > ONE_HOUR) {
+        try { await bot.api.sendMessage(chatId, "🛑 <b>Lobby Closed:</b> This cricket match lobby has been inactive for more than 1 hour and has been automatically closed.", { parse_mode: 'HTML' }); } catch(e) {}
+        delete activeLobbies[chatId];
+      }
+    }
 
     // Cleanup Undercover
     const ucLobbies = gameManager.getLobbies();
