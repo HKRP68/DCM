@@ -84,12 +84,16 @@ class Match {
     this.currentDelivery = null;
     this.currentSpeed = null;
     this.currentShot = null;
+    this.isMysteryBall = false;
+    this.mysteryBallBowledThisOver = false;
+    this.isFreeHit = false;
 
     this.commentary = [];
     this.lastBallOutcome = null;
     this.partnership = { runs: 0, balls: 0 };
     this.lastOverEndRuns = 0;
     this.lastBowlerId = null; // Fixed consecutive bowler tracking across innings
+    this.recentOutcomes = [];
 
     this.hostConfirmed = false;
     this.guestConfirmed = false;
@@ -288,6 +292,15 @@ class Match {
   }
 
   bowlBall() {
+    const batStats = this.stats[this.striker.id] || { runs: 0, balls: 0, fours: 0, sixes: 0, overs: 0, runsConceded: 0, wickets: 0 };
+    const bowlStats = this.stats[this.currentBowler.id] || { runs: 0, balls: 0, fours: 0, sixes: 0, overs: 0, runsConceded: 0, wickets: 0 };
+
+    if (!batStats.shotHistory) batStats.shotHistory = [];
+    if (!bowlStats.deliveryHistory) bowlStats.deliveryHistory = [];
+    if (!bowlStats.speedHistory) bowlStats.speedHistory = [];
+
+    const wasFreeHit = this.isFreeHit || false;
+
     const outcome = calculateBallOutcome(
       this.striker,
       this.currentBowler,
@@ -299,18 +312,79 @@ class Match {
       {
         overNumber: Math.floor(this.currentInnings.balls / 6),
         totalOvers: this.totalOvers,
-        batsmanStats: this.stats[this.striker.id],
-        bowlerStats: this.stats[this.currentBowler.id]
+        batsmanStats: batStats,
+        bowlerStats: bowlStats,
+        isMysteryBall: this.isMysteryBall,
+        recentOutcomes: this.recentOutcomes || [],
+        shotHistory: batStats.shotHistory,
+        deliveryHistory: bowlStats.deliveryHistory,
+        speedHistory: bowlStats.speedHistory,
+        isFreeHit: wasFreeHit,
+        isSecondInnings: this.currentInningsIdx === 1,
+        target: this.currentInnings.target,
+        runsScored: this.currentInnings.runs,
+        ballsRemaining: (this.totalOvers * 6) - this.currentInnings.balls,
+        wicketsDown: this.currentInnings.wickets
       }
     );
 
     const current = this.currentInnings;
-    current.balls += 1;
 
-    const batStats = this.stats[this.striker.id];
+    // Push outcome to recent outcomes
+    if (!this.recentOutcomes) this.recentOutcomes = [];
+    this.recentOutcomes.push({
+      runs: outcome.runs,
+      isWicket: outcome.isWicket,
+      isExtra: outcome.isExtra
+    });
+    if (this.recentOutcomes.length > 6) {
+      this.recentOutcomes.shift();
+    }
+
+    if (outcome.isExtra) {
+      // Wides / No-balls: Add to team runs, extras, and bowler concessions
+      current.runs += outcome.runs;
+      current.extras = (current.extras || 0) + outcome.runs;
+      bowlStats.runsConceded += outcome.runs;
+
+      // Update bowler's history even on extra to track spamming
+      bowlStats.deliveryHistory.push(this.currentDelivery);
+      bowlStats.speedHistory.push(this.currentSpeed);
+      if (bowlStats.deliveryHistory.length > 6) bowlStats.deliveryHistory.shift();
+      if (bowlStats.speedHistory.length > 6) bowlStats.speedHistory.shift();
+
+      // Reset turn delivery/shot inputs but DO NOT advance ball/striker states
+      this.currentDelivery = null;
+      this.currentSpeed = null;
+      this.currentShot = null;
+      this.isMysteryBall = false;
+      this.lastBallOutcome = outcome;
+
+      // Transition free hit state on extras
+      if (outcome.extraType === 'no-ball') {
+        this.isFreeHit = true;
+      } else if (wasFreeHit) {
+        this.isFreeHit = true; // still free hit on wide/etc.
+      } else {
+        this.isFreeHit = false;
+      }
+
+      return outcome;
+    }
+
+    // Normal ball updates:
+    current.balls += 1;
     batStats.balls += 1;
 
-    const bowlStats = this.stats[this.currentBowler.id];
+    // Update histories
+    batStats.shotHistory.push(this.currentShot);
+    if (batStats.shotHistory.length > 6) batStats.shotHistory.shift();
+
+    bowlStats.deliveryHistory.push(this.currentDelivery);
+    bowlStats.speedHistory.push(this.currentSpeed);
+    if (bowlStats.deliveryHistory.length > 6) bowlStats.deliveryHistory.shift();
+    if (bowlStats.speedHistory.length > 6) bowlStats.speedHistory.shift();
+
     const currentBallsBowled = Math.round((bowlStats.overs % 1) * 10) + Math.floor(bowlStats.overs) * 6 + 1;
     const completedOvers = Math.floor(currentBallsBowled / 6);
     const fraction = currentBallsBowled % 6;
@@ -320,8 +394,8 @@ class Match {
       current.wickets += 1;
       bowlStats.wickets += 1;
       
-      this.stats[this.striker.id].isOut = true;
-      this.stats[this.striker.id].outDetail = outcome.wicketDetail;
+      batStats.isOut = true;
+      batStats.outDetail = outcome.wicketDetail;
       
       if (this.type === 'pve') {
         if (this.nextBatsmanIdx < 11) {
@@ -336,7 +410,7 @@ class Match {
       
       if (outcome.runs === 4) batStats.fours += 1;
       if (outcome.runs === 6) batStats.sixes += 1;
-
+ 
       if (outcome.runs === 1 || outcome.runs === 3) {
         const temp = this.strikerIdx;
         this.strikerIdx = this.nonStrikerIdx;
@@ -362,9 +436,15 @@ class Match {
       }
     }
 
+    if (overCompleted) {
+      this.mysteryBallBowledThisOver = false;
+    }
+
     this.currentDelivery = null;
     this.currentSpeed = null;
     this.currentShot = null;
+    this.isMysteryBall = false;
+    this.isFreeHit = false;
 
     this.lastBallOutcome = outcome;
     if (outcome.isWicket) {
@@ -436,14 +516,16 @@ class Match {
       motmStats = this.stats[bestPlayerId];
     }
 
-    // Award rewards directly in the database
+     // Award rewards directly in the database
     if (winner && winner.telegramId !== 'ai') {
+      const winnerName = winner.username || 'User';
       await sb.addCoins(winner.telegramId, winnerReward).catch(e => console.error("Failed to add coins to winner:", e));
-      await sb.recordWin(winner.telegramId, 'cricket').catch(e => console.error("Failed to record win:", e));
+      await sb.recordWin(winner.telegramId, winnerName, this.chatId).catch(e => console.error("Failed to record win:", e));
     }
     if (loser && loser.telegramId !== 'ai') {
+      const loserName = loser.username || 'User';
       await sb.addCoins(loser.telegramId, loserReward).catch(e => console.error("Failed to add coins to loser:", e));
-      await sb.recordLoss(loser.telegramId, 'cricket').catch(e => console.error("Failed to record loss:", e));
+      await sb.recordLoss(loser.telegramId, loserName, this.chatId).catch(e => console.error("Failed to record loss:", e));
     }
 
     // Sync to Supabase
@@ -514,11 +596,15 @@ class Match {
       currentDelivery: this.currentDelivery,
       currentSpeed: this.currentSpeed,
       currentShot: this.currentShot,
+      isMysteryBall: this.isMysteryBall,
+      mysteryBallBowledThisOver: this.mysteryBallBowledThisOver,
+      isFreeHit: this.isFreeHit,
       commentary: this.commentary,
       lastBallOutcome: this.lastBallOutcome,
       partnership: this.partnership,
       lastOverEndRuns: this.lastOverEndRuns,
       lastBowlerId: this.lastBowlerId,
+      recentOutcomes: this.recentOutcomes,
       hostConfirmed: this.hostConfirmed,
       guestConfirmed: this.guestConfirmed,
       activeScorecardMessageId: this.activeScorecardMessageId,
@@ -550,11 +636,15 @@ function deserializeMatch(data) {
   match.currentDelivery = data.currentDelivery;
   match.currentSpeed = data.currentSpeed;
   match.currentShot = data.currentShot;
+  match.isMysteryBall = data.isMysteryBall || false;
+  match.mysteryBallBowledThisOver = data.mysteryBallBowledThisOver || false;
+  match.isFreeHit = data.isFreeHit || false;
   match.commentary = data.commentary;
   match.lastBallOutcome = data.lastBallOutcome;
   match.partnership = data.partnership;
   match.lastOverEndRuns = data.lastOverEndRuns;
   match.lastBowlerId = data.lastBowlerId;
+  match.recentOutcomes = data.recentOutcomes || [];
   match.hostConfirmed = data.hostConfirmed;
   match.guestConfirmed = data.guestConfirmed;
   match.activeScorecardMessageId = data.activeScorecardMessageId;
