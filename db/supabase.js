@@ -298,84 +298,121 @@ function releaseLock(releaseFn) {
 }
 
 let starterPackSchemaReady = false;
+
+async function runSchemaStep(description, sql) {
+  try {
+    await supabase.query(sql);
+    return true;
+  } catch (e) {
+    console.error(`[DB] Schema repair step failed: ${description}`, e);
+    return false;
+  }
+}
+
+async function hasColumn(tableName, columnName) {
+  const result = await supabase.query(
+    `SELECT 1
+       FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = $1
+        AND column_name = $2
+      LIMIT 1`,
+    [tableName, columnName]
+  );
+  return result.rows.length > 0;
+}
+
 async function ensureStarterPackSchema() {
   if (!supabase || starterPackSchemaReady) return true;
-  try {
-    // Neon deployments may start from only the player catalog SQL.  Make the
-    // starter-pack path self-healing so /claim does not fail when the core bot
-    // tables or newer columns have not been created yet.
-    await supabase.query(`
+
+  // Neon databases are frequently created by pasting only part of the SQL setup
+  // into the console.  The /claim path should repair the schema it needs, but
+  // optional hardening (indexes/NOT NULL) must not block users from receiving
+  // their starter squad.  Only the final claimed_starter column check is fatal.
+  const requiredSteps = [
+    ['create profiles table', `
       CREATE TABLE IF NOT EXISTS profiles (
         user_id BIGINT PRIMARY KEY,
         first_name TEXT DEFAULT 'User',
-        wins INT NOT NULL DEFAULT 0,
-        matches_played INT NOT NULL DEFAULT 0,
-        coins BIGINT NOT NULL DEFAULT 2000,
+        wins INT DEFAULT 0,
+        matches_played INT DEFAULT 0,
+        coins BIGINT DEFAULT 2000,
         last_daily TIMESTAMPTZ,
         last_spin TIMESTAMPTZ,
-        rating INT NOT NULL DEFAULT 0,
+        rating INT DEFAULT 0,
         team_name TEXT,
-        claimed_starter BOOLEAN NOT NULL DEFAULT FALSE,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        claimed_starter BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMPTZ DEFAULT NOW()
       )
-    `);
-    await supabase.query(`
+    `],
+    ['create user_owned_players table', `
       CREATE TABLE IF NOT EXISTS user_owned_players (
         id BIGSERIAL PRIMARY KEY,
-        user_id BIGINT NOT NULL,
-        player_id TEXT NOT NULL,
-        sport TEXT NOT NULL DEFAULT 'cricket',
-        squad_order INT NOT NULL DEFAULT 0,
-        acquired_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        user_id BIGINT,
+        player_id TEXT,
+        sport TEXT DEFAULT 'cricket',
+        squad_order INT DEFAULT 0,
+        acquired_at TIMESTAMPTZ DEFAULT NOW()
       )
-    `);
+    `],
+    ['profiles.first_name', `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS first_name TEXT DEFAULT 'User'`],
+    ['profiles.wins', `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS wins INT DEFAULT 0`],
+    ['profiles.matches_played', `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS matches_played INT DEFAULT 0`],
+    ['profiles.coins', `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS coins BIGINT DEFAULT 2000`],
+    ['profiles.last_daily', `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS last_daily TIMESTAMPTZ`],
+    ['profiles.last_spin', `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS last_spin TIMESTAMPTZ`],
+    ['profiles.rating', `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS rating INT DEFAULT 0`],
+    ['profiles.team_name', `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS team_name TEXT`],
+    ['profiles.claimed_starter', `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS claimed_starter BOOLEAN DEFAULT FALSE`],
+    ['profiles.created_at', `ALTER TABLE profiles ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()`],
+    ['user_owned_players.user_id', `ALTER TABLE user_owned_players ADD COLUMN IF NOT EXISTS user_id BIGINT`],
+    ['user_owned_players.player_id', `ALTER TABLE user_owned_players ADD COLUMN IF NOT EXISTS player_id TEXT`],
+    ['user_owned_players.sport', `ALTER TABLE user_owned_players ADD COLUMN IF NOT EXISTS sport TEXT DEFAULT 'cricket'`],
+    ['user_owned_players.squad_order', `ALTER TABLE user_owned_players ADD COLUMN IF NOT EXISTS squad_order INT DEFAULT 0`],
+    ['user_owned_players.acquired_at', `ALTER TABLE user_owned_players ADD COLUMN IF NOT EXISTS acquired_at TIMESTAMPTZ DEFAULT NOW()`]
+  ];
 
-    // Add every profile/user-owned column used by /claim.  These ALTERs are
-    // safe on fully migrated databases and repair partially migrated Neon DBs.
-    await supabase.query(`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS first_name TEXT DEFAULT 'User'`);
-    await supabase.query(`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS wins INT DEFAULT 0`);
-    await supabase.query(`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS matches_played INT DEFAULT 0`);
-    await supabase.query(`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS coins BIGINT DEFAULT 2000`);
-    await supabase.query(`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS last_daily TIMESTAMPTZ`);
-    await supabase.query(`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS last_spin TIMESTAMPTZ`);
-    await supabase.query(`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS rating INT DEFAULT 0`);
-    await supabase.query(`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS team_name TEXT`);
-    await supabase.query(`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS claimed_starter BOOLEAN DEFAULT FALSE`);
-    await supabase.query(`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()`);
-    await supabase.query(`UPDATE profiles SET first_name = COALESCE(first_name, 'User')`);
-    await supabase.query(`UPDATE profiles SET wins = COALESCE(wins, 0)`);
-    await supabase.query(`UPDATE profiles SET matches_played = COALESCE(matches_played, 0)`);
-    await supabase.query(`UPDATE profiles SET coins = COALESCE(coins, 2000)`);
-    await supabase.query(`UPDATE profiles SET rating = COALESCE(rating, 0)`);
-    await supabase.query(`UPDATE profiles SET claimed_starter = COALESCE(claimed_starter, FALSE)`);
-    await supabase.query(`ALTER TABLE profiles ALTER COLUMN first_name SET DEFAULT 'User'`);
-    await supabase.query(`ALTER TABLE profiles ALTER COLUMN wins SET DEFAULT 0`);
-    await supabase.query(`ALTER TABLE profiles ALTER COLUMN matches_played SET DEFAULT 0`);
-    await supabase.query(`ALTER TABLE profiles ALTER COLUMN coins SET DEFAULT 2000`);
-    await supabase.query(`ALTER TABLE profiles ALTER COLUMN rating SET DEFAULT 0`);
-    await supabase.query(`ALTER TABLE profiles ALTER COLUMN claimed_starter SET DEFAULT FALSE`);
-    await supabase.query(`ALTER TABLE profiles ALTER COLUMN wins SET NOT NULL`);
-    await supabase.query(`ALTER TABLE profiles ALTER COLUMN matches_played SET NOT NULL`);
-    await supabase.query(`ALTER TABLE profiles ALTER COLUMN coins SET NOT NULL`);
-    await supabase.query(`ALTER TABLE profiles ALTER COLUMN rating SET NOT NULL`);
-    await supabase.query(`ALTER TABLE profiles ALTER COLUMN claimed_starter SET NOT NULL`);
+  for (const [description, sql] of requiredSteps) {
+    const ok = await runSchemaStep(description, sql);
+    if (!ok && description === 'profiles.claimed_starter') return false;
+  }
 
-    await supabase.query(`ALTER TABLE user_owned_players ADD COLUMN IF NOT EXISTS squad_order INT DEFAULT 0`);
-    await supabase.query(`UPDATE user_owned_players SET squad_order = COALESCE(squad_order, 0)`);
-    await supabase.query(`ALTER TABLE user_owned_players ALTER COLUMN squad_order SET DEFAULT 0`);
-    // Do not create the user/player/sport uniqueness constraint here.  This
-    // repair path runs inline with /claim and must tolerate dirty partial
-    // deployments, including databases that already contain duplicate owned
-    // player rows.  Building a unique index in that state raises a duplicate-key
-    // error and prevents users from claiming before we even fetch their profile;
-    // keep only the non-unique lookup indexes in this user-facing flow.
-    await supabase.query(`CREATE INDEX IF NOT EXISTS idx_user_owned_players_user_sport ON user_owned_players(user_id, sport)`);
-    await supabase.query(`CREATE INDEX IF NOT EXISTS idx_profiles_rating ON profiles(rating DESC, wins DESC, coins DESC)`);
+  const cleanupSteps = [
+    ['profiles first_name backfill', `UPDATE profiles SET first_name = COALESCE(first_name, 'User')`],
+    ['profiles wins backfill', `UPDATE profiles SET wins = COALESCE(wins, 0)`],
+    ['profiles matches_played backfill', `UPDATE profiles SET matches_played = COALESCE(matches_played, 0)`],
+    ['profiles coins backfill', `UPDATE profiles SET coins = COALESCE(coins, 2000)`],
+    ['profiles rating backfill', `UPDATE profiles SET rating = COALESCE(rating, 0)`],
+    ['profiles claimed_starter backfill', `UPDATE profiles SET claimed_starter = COALESCE(claimed_starter, FALSE)`],
+    ['owned players sport backfill', `UPDATE user_owned_players SET sport = COALESCE(sport, 'cricket')`],
+    ['owned players squad_order backfill', `UPDATE user_owned_players SET squad_order = COALESCE(squad_order, 0)`],
+    ['profiles first_name default', `ALTER TABLE profiles ALTER COLUMN first_name SET DEFAULT 'User'`],
+    ['profiles wins default', `ALTER TABLE profiles ALTER COLUMN wins SET DEFAULT 0`],
+    ['profiles matches_played default', `ALTER TABLE profiles ALTER COLUMN matches_played SET DEFAULT 0`],
+    ['profiles coins default', `ALTER TABLE profiles ALTER COLUMN coins SET DEFAULT 2000`],
+    ['profiles rating default', `ALTER TABLE profiles ALTER COLUMN rating SET DEFAULT 0`],
+    ['profiles claimed_starter default', `ALTER TABLE profiles ALTER COLUMN claimed_starter SET DEFAULT FALSE`],
+    ['owned players sport default', `ALTER TABLE user_owned_players ALTER COLUMN sport SET DEFAULT 'cricket'`],
+    ['owned players squad_order default', `ALTER TABLE user_owned_players ALTER COLUMN squad_order SET DEFAULT 0`],
+    ['owned players acquired_at default', `ALTER TABLE user_owned_players ALTER COLUMN acquired_at SET DEFAULT NOW()`],
+    ['profiles wins not null', `ALTER TABLE profiles ALTER COLUMN wins SET NOT NULL`],
+    ['profiles matches_played not null', `ALTER TABLE profiles ALTER COLUMN matches_played SET NOT NULL`],
+    ['profiles coins not null', `ALTER TABLE profiles ALTER COLUMN coins SET NOT NULL`],
+    ['profiles rating not null', `ALTER TABLE profiles ALTER COLUMN rating SET NOT NULL`],
+    ['profiles claimed_starter not null', `ALTER TABLE profiles ALTER COLUMN claimed_starter SET NOT NULL`],
+    ['owned players lookup index', `CREATE INDEX IF NOT EXISTS idx_user_owned_players_user_sport ON user_owned_players(user_id, sport)`],
+    ['profiles rating index', `CREATE INDEX IF NOT EXISTS idx_profiles_rating ON profiles(rating DESC, wins DESC, coins DESC)`]
+  ];
 
-    starterPackSchemaReady = true;
-    return true;
+  for (const [description, sql] of cleanupSteps) {
+    await runSchemaStep(description, sql);
+  }
+
+  try {
+    starterPackSchemaReady = await hasColumn('profiles', 'claimed_starter');
+    return starterPackSchemaReady;
   } catch (e) {
-    console.error("Error ensuring starter pack profile schema:", e);
+    console.error('[DB] Unable to verify starter pack schema:', e);
     return false;
   }
 }

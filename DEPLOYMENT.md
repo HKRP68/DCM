@@ -42,12 +42,9 @@ For local Telegram Web App testing, use a tunnel such as ngrok or Cloudflare Tun
 1. Create a Neon project and database.
 2. Copy either the pooled or direct connection string and set it as `DATABASE_URL` on the server. Keep `sslmode=require` in the URL for Neon.
 3. Open the Neon SQL Editor, or connect with `psql`, and run the repository SQL files in this order:
-   1. `db/neon_schema.sql` - creates the base application tables for profiles, group stats, bonus claims, settings, rewards, and owned players.
-   2. `data/cricketplayers.sql` - creates and seeds the `cricketplayers` catalog.
-   3. `db/migration.sql` - creates `hilo_games` and keeps `profiles.last_daily` compatible with older installs.
-   4. `db/cricket_migration.sql` - creates `cricket_matches` and adds cricket/shop columns for older installs.
-   5. `db/rating_migration.sql` - optional for fresh installs because `db/neon_schema.sql` already includes `profiles.rating`, but safe to run.
-   6. `db/starter_pack_claim_migration.sql` - ensures older installs have the `profiles.claimed_starter` flag required by `/claim`.
+   1. `db/neon_schema.sql` - creates the complete application schema for Neon, including profiles, game tables, cricket match tables, the owned-player table, the `profiles.claimed_starter` flag required by `/claim`, and the empty `cricketplayers` catalog table. This file is idempotent and safe to rerun on existing Neon databases.
+   2. `data/cricketplayers.sql` - seeds the `cricketplayers` catalog. Run it after `db/neon_schema.sql` so the shop and starter pack have a player pool.
+   3. Optional compatibility reruns for older deployments: `db/migration.sql`, `db/cricket_migration.sql`, `db/rating_migration.sql`, and `db/starter_pack_claim_migration.sql`. These remain safe for legacy databases, but a fresh Neon deployment only needs steps 1 and 2.
 
 The code expects these Neon/Postgres tables:
 
@@ -146,7 +143,7 @@ In [@BotFather](https://t.me/BotFather):
 ## 9. Updating an existing deployment
 
 1. Pull or deploy the new code.
-2. Run any new SQL migrations in Neon before restarting the service.
+2. Rerun `db/neon_schema.sql` in Neon before restarting the service, then run any new seed/catalog SQL if it changed.
 3. Restart/redeploy the Node service.
 4. Check logs for Telegram auth, Neon/Postgres errors, and match recovery messages.
 5. Run the health endpoint and a Telegram `/ping` command.
@@ -158,6 +155,7 @@ In [@BotFather](https://t.me/BotFather):
 | Process exits immediately on startup | Missing or invalid `BOT_TOKEN` | Verify the token from @BotFather and redeploy. |
 | Mini App buttons open the wrong domain | Missing/wrong `RENDER_EXTERNAL_HOSTNAME` | Set it to your public host, without protocol. |
 | Profiles, coins, shop, or leaderboards fail | Missing Neon credentials or tables | Set `DATABASE_URL` and run SQL setup. The bundled cricket catalog keeps shop browsing available, but purchases still require persistence tables. |
-| `/claim` reports `Database error checking owned players.` | Missing or outdated `user_owned_players` table | Run the latest `db/cricket_migration.sql`, which creates the table and adds any missing cricket columns to an existing table. |
+| `/claim` reports `Database schema is missing the starter pack claim field.` | Missing or partially applied Neon schema | Rerun `db/neon_schema.sql`; the bot also attempts an inline repair of `profiles.claimed_starter` when `/claim` is used. |
+| `/claim` reports `Database error checking owned players.` | Missing or outdated `user_owned_players` table | Rerun `db/neon_schema.sql`, which creates the table and adds any missing cricket columns to an existing table. |
 | Telegram Web App does not open | Domain not configured in BotFather or not HTTPS | Configure the production HTTPS domain in BotFather. |
 | Duplicate bot responses or polling errors | More than one process uses the same token | Stop duplicate deployments/workers for that token. |
