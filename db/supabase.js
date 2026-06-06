@@ -1,14 +1,274 @@
-const { createClient } = require('@supabase/supabase-js');
+const databaseUrl = process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.NEON_DATABASE_URL;
 
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_KEY;
+const PRIMARY_KEYS = {
+  profiles: ['user_id'],
+  group_stats: ['user_id', 'chat_id'],
+  group_settings: ['chat_id'],
+  group_rewards: ['chat_id'],
+  hilo_games: ['user_id'],
+  cricketplayers: ['id'],
+  user_owned_players: ['id'],
+  cricket_matches: ['id'],
+  bonus_claims: ['id']
+};
 
+let pool = null;
+// Compatibility name: the rest of the bot checks sb.supabase before using persistence.
+// This object is now backed by Neon/Postgres, not Supabase.
 let supabase = null;
-if (supabaseUrl && supabaseKey) {
-  supabase = createClient(supabaseUrl, supabaseKey);
-  console.log("Supabase Client Initialized");
+
+function quoteIdent(identifier) {
+  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(identifier)) {
+    throw new Error(`Unsafe SQL identifier: ${identifier}`);
+  }
+  return `"${identifier}"`;
+}
+
+function quoteTable(table) {
+  return table.split('.').map(quoteIdent).join('.');
+}
+
+function normalizeTable(table) {
+  return table.includes('.') ? table.split('.').pop() : table;
+}
+
+class NeonQueryBuilder {
+  constructor(table) {
+    this.table = table;
+    this.normalizedTable = normalizeTable(table);
+    this.action = 'select';
+    this.selectColumns = '*';
+    this.countOptions = null;
+    this.payload = null;
+    this.filters = [];
+    this.orFilters = [];
+    this.orders = [];
+    this.limitValue = null;
+    this.offsetValue = null;
+    this.singleMode = false;
+    this.maybeSingleMode = false;
+  }
+
+  select(columns = '*', options = {}) {
+    this.action = 'select';
+    this.selectColumns = columns || '*';
+    this.countOptions = options || null;
+    return this;
+  }
+
+  insert(payload) {
+    this.action = 'insert';
+    this.payload = payload;
+    return this;
+  }
+
+  update(payload) {
+    this.action = 'update';
+    this.payload = payload;
+    return this;
+  }
+
+  upsert(payload) {
+    this.action = 'upsert';
+    this.payload = payload;
+    return this;
+  }
+
+  delete() {
+    this.action = 'delete';
+    return this;
+  }
+
+  eq(column, value) { this.filters.push({ column, op: '=', value }); return this; }
+  neq(column, value) { this.filters.push({ column, op: '<>', value }); return this; }
+  gt(column, value) { this.filters.push({ column, op: '>', value }); return this; }
+  lt(column, value) { this.filters.push({ column, op: '<', value }); return this; }
+  in(column, values) { this.filters.push({ column, op: 'in', value: values || [] }); return this; }
+
+  or(expression) {
+    const parsed = String(expression || '')
+      .split(',')
+      .map(part => part.trim())
+      .filter(Boolean)
+      .map(part => {
+        const [column, operator, ...rest] = part.split('.');
+        const rawValue = rest.join('.');
+        if (operator !== 'eq') throw new Error(`Unsupported OR operator: ${operator}`);
+        return { column, op: '=', value: this.coerceValue(rawValue) };
+      });
+    if (parsed.length) this.orFilters.push(parsed);
+    return this;
+  }
+
+  order(column, options = {}) {
+    this.orders.push({ column, ascending: options.ascending !== false });
+    return this;
+  }
+
+  limit(value) { this.limitValue = value; return this; }
+
+  range(from, to) {
+    this.offsetValue = from;
+    this.limitValue = Math.max(0, to - from + 1);
+    return this;
+  }
+
+  single() { this.singleMode = true; return this; }
+  maybeSingle() { this.maybeSingleMode = true; return this; }
+
+  coerceValue(value) {
+    if (/^-?\d+$/.test(value)) return Number(value);
+    if (value === 'true') return true;
+    if (value === 'false') return false;
+    if (value === 'null') return null;
+    return value;
+  }
+
+  columnSql() {
+    if (this.selectColumns === '*') return '*';
+    return String(this.selectColumns)
+      .split(',')
+      .map(column => quoteIdent(column.trim()))
+      .join(', ');
+  }
+
+  addWhere(values) {
+    const clauses = [];
+    for (const filter of this.filters) {
+      if (filter.op === 'in') {
+        if (!filter.value.length) {
+          clauses.push('FALSE');
+          continue;
+        }
+        const placeholders = filter.value.map(value => {
+          values.push(value);
+          return `$${values.length}`;
+        });
+        clauses.push(`${quoteIdent(filter.column)} IN (${placeholders.join(', ')})`);
+      } else if (filter.value === null && filter.op === '=') {
+        clauses.push(`${quoteIdent(filter.column)} IS NULL`);
+      } else if (filter.value === null && filter.op === '<>') {
+        clauses.push(`${quoteIdent(filter.column)} IS NOT NULL`);
+      } else {
+        values.push(filter.value);
+        clauses.push(`${quoteIdent(filter.column)} ${filter.op} $${values.length}`);
+      }
+    }
+
+    for (const group of this.orFilters) {
+      const orClauses = group.map(filter => {
+        values.push(filter.value);
+        return `${quoteIdent(filter.column)} ${filter.op} $${values.length}`;
+      });
+      clauses.push(`(${orClauses.join(' OR ')})`);
+    }
+
+    return clauses.length ? ` WHERE ${clauses.join(' AND ')}` : '';
+  }
+
+  addOrderLimit(values) {
+    let sql = '';
+    if (this.orders.length) {
+      sql += ' ORDER BY ' + this.orders
+        .map(order => `${quoteIdent(order.column)} ${order.ascending ? 'ASC' : 'DESC'}`)
+        .join(', ');
+    }
+    if (this.limitValue !== null && this.limitValue !== undefined) {
+      values.push(this.limitValue);
+      sql += ` LIMIT $${values.length}`;
+    }
+    if (this.offsetValue !== null && this.offsetValue !== undefined) {
+      values.push(this.offsetValue);
+      sql += ` OFFSET $${values.length}`;
+    }
+    return sql;
+  }
+
+  async execute() {
+    const values = [];
+    const tableSql = quoteTable(this.table);
+    let sql;
+
+    if (this.action === 'select') {
+      if (this.countOptions?.count === 'exact' && this.countOptions?.head) {
+        sql = `SELECT COUNT(*)::int AS count FROM ${tableSql}` + this.addWhere(values);
+        const result = await pool.query(sql, values);
+        return { data: null, count: result.rows[0]?.count || 0, error: null };
+      }
+      sql = `SELECT ${this.columnSql()} FROM ${tableSql}` + this.addWhere(values) + this.addOrderLimit(values);
+      const result = await pool.query(sql, values);
+      const rows = result.rows;
+      if (this.singleMode || this.maybeSingleMode) return { data: rows[0] || null, error: null };
+      return { data: rows, error: null };
+    }
+
+    if (this.action === 'insert' || this.action === 'upsert') {
+      const rows = Array.isArray(this.payload) ? this.payload : [this.payload];
+      if (!rows.length) return { data: [], error: null };
+      const columns = Object.keys(rows[0]);
+      const valueGroups = rows.map(row => `(${columns.map(column => {
+        values.push(row[column]);
+        return `$${values.length}`;
+      }).join(', ')})`);
+      sql = `INSERT INTO ${tableSql} (${columns.map(quoteIdent).join(', ')}) VALUES ${valueGroups.join(', ')}`;
+      if (this.action === 'upsert') {
+        const keys = PRIMARY_KEYS[this.normalizedTable] || ['id'];
+        const updateColumns = columns.filter(column => !keys.includes(column));
+        sql += ` ON CONFLICT (${keys.map(quoteIdent).join(', ')})`;
+        sql += updateColumns.length
+          ? ` DO UPDATE SET ${updateColumns.map(column => `${quoteIdent(column)} = EXCLUDED.${quoteIdent(column)}`).join(', ')}`
+          : ' DO NOTHING';
+      }
+      sql += ' RETURNING *';
+      const result = await pool.query(sql, values);
+      return { data: Array.isArray(this.payload) ? result.rows : (result.rows[0] || null), error: null };
+    }
+
+    if (this.action === 'update') {
+      const columns = Object.keys(this.payload || {});
+      sql = `UPDATE ${tableSql} SET ${columns.map(column => {
+        values.push(this.payload[column]);
+        return `${quoteIdent(column)} = $${values.length}`;
+      }).join(', ')}` + this.addWhere(values) + ' RETURNING *';
+      const result = await pool.query(sql, values);
+      return { data: result.rows, error: null };
+    }
+
+    if (this.action === 'delete') {
+      sql = `DELETE FROM ${tableSql}` + this.addWhere(values) + ' RETURNING *';
+      const result = await pool.query(sql, values);
+      return { data: result.rows, error: null };
+    }
+
+    throw new Error(`Unsupported query action: ${this.action}`);
+  }
+
+  then(resolve, reject) {
+    return this.execute()
+      .catch(error => ({ data: null, count: null, error }))
+      .then(resolve, reject);
+  }
+}
+
+if (databaseUrl) {
+  const { Pool } = require('@neondatabase/serverless');
+  pool = new Pool({
+    connectionString: databaseUrl,
+    ssl: process.env.PGSSL === 'disable' ? false : { rejectUnauthorized: false },
+    max: Number(process.env.PGPOOL_MAX || 5),
+    idleTimeoutMillis: 30000
+  });
+  supabase = {
+    from(table) {
+      return new NeonQueryBuilder(table);
+    },
+    query(text, params) {
+      return pool.query(text, params);
+    }
+  };
+  console.log('Neon Postgres client initialized');
 } else {
-  console.log("WARNING: Supabase URL or Key missing. Database features will be bypassed.");
+  console.log('WARNING: DATABASE_URL missing. Database features will be bypassed.');
 }
 
 // --- Player Caching System ---

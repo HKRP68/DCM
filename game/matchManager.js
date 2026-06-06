@@ -528,7 +528,7 @@ class Match {
       await sb.recordLoss(loser.telegramId, loserName, this.chatId).catch(e => console.error("Failed to record loss:", e));
     }
 
-    // Sync to Supabase
+    // Sync to Neon/Postgres
     saveToDb(this);
 
     // Cleanup active match

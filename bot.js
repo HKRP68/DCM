@@ -5055,7 +5055,7 @@ app.get('/api/match', async (req, res) => {
           return res.json(serialized);
         }
       } catch (err) {
-        console.error("Failed to fetch match from Supabase:", err);
+        console.error("Failed to fetch match from Neon/Postgres:", err);
       }
     }
     return res.status(404).json({ error: 'No active match found.' });
