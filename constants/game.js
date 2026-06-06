@@ -183,6 +183,7 @@ const SPEED_FACTORS = {
 };
 
 const SHOT_BALL_COMPATIBILITY = {
+  // --- BASE DELIVERIES (Fallbacks and Spinners) ---
   bouncer: {
     leave: 0.9, defend: 0.4, pull: 0.85, hook: 0.85, upper_cut: 0.75,
     cut: 0.5, slog: 0.3, sweep: 0.05, flick: 0.1,
@@ -208,6 +209,120 @@ const SHOT_BALL_COMPATIBILITY = {
     off_drive: 0.7, on_drive: 0.65, flick: 0.6, cut: 0.4,
     pull: 0.35, slog: 0.3, loft: 0.35, drive_on_the_up: 0.7,
   },
+
+  // --- FAST BOWLERS COMPOUND VARIATIONS ---
+
+  // 1. Yorker Variations
+  fast_yorker: {
+    defend: 0.85, flick: 0.4, straight_drive: 0.3, leave: 0.01,
+    pull: 0.01, sweep: 0.01, cut: 0.01, loft: 0.05
+  },
+  normal_yorker: {
+    defend: 0.80, flick: 0.75, straight_drive: 0.65, leave: 0.05,
+    pull: 0.05, sweep: 0.1, cut: 0.05, loft: 0.1
+  },
+  slow_yorker: {
+    straight_drive: 0.85, flick: 0.80, defend: 0.70, loft: 0.75,
+    pull: 0.1, sweep: 0.3, cut: 0.2, leave: 0.3
+  },
+  inswinger_yorker: {
+    flick: 0.90, defend: 0.80, straight_drive: 0.50, leave: 0.01,
+    pull: 0.05, sweep: 0.15, cut: 0.02, loft: 0.1
+  },
+  outswinger_yorker: {
+    leave: 0.90, defend: 0.80, straight_drive: 0.55, flick: 0.20,
+    pull: 0.02, sweep: 0.05, cut: 0.15, loft: 0.1
+  },
+
+  // 2. Full Length Variations
+  fast_full_length: {
+    straight_drive: 0.85, defend: 0.80, flick: 0.65, loft: 0.60,
+    leave: 0.4, pull: 0.1, sweep: 0.1, cut: 0.3
+  },
+  normal_full_length: {
+    straight_drive: 0.90, defend: 0.75, flick: 0.75, loft: 0.70,
+    leave: 0.5, pull: 0.2, sweep: 0.3, cut: 0.4
+  },
+  slow_full_length: {
+    loft: 0.90, straight_drive: 0.85, flick: 0.80, defend: 0.65,
+    pull: 0.50, sweep: 0.60, cut: 0.50, leave: 0.5
+  },
+  inswinger_full_length: {
+    flick: 0.90, straight_drive: 0.80, defend: 0.75, sweep: 0.50,
+    leave: 0.3, pull: 0.2, cut: 0.15, loft: 0.6
+  },
+  outswinger_full_length: {
+    straight_drive: 0.85, leave: 0.80, defend: 0.75, cut: 0.50,
+    flick: 0.2, pull: 0.1, sweep: 0.1, loft: 0.5
+  },
+
+  // 3. Good Length Variations
+  fast_good_length: {
+    defend: 0.90, leave: 0.85, straight_drive: 0.55, flick: 0.45,
+    pull: 0.2, sweep: 0.05, cut: 0.3, loft: 0.2
+  },
+  normal_good_length: {
+    defend: 0.85, leave: 0.80, straight_drive: 0.70, flick: 0.60,
+    pull: 0.35, sweep: 0.1, cut: 0.4, loft: 0.3
+  },
+  slow_good_length: {
+    straight_drive: 0.85, loft: 0.80, defend: 0.70, flick: 0.65,
+    pull: 0.5, sweep: 0.3, cut: 0.5, leave: 0.7
+  },
+  inswinger_good_length: {
+    defend: 0.85, flick: 0.80, straight_drive: 0.60, leave: 0.40,
+    pull: 0.3, sweep: 0.2, cut: 0.15, loft: 0.3
+  },
+  outswinger_good_length: {
+    leave: 0.95, defend: 0.85, straight_drive: 0.50, cut: 0.60,
+    flick: 0.15, pull: 0.2, sweep: 0.1, loft: 0.3
+  },
+
+  // 4. Short Variations
+  fast_short: {
+    pull: 0.85, leave: 0.80, cut: 0.65, defend: 0.40,
+    straight_drive: 0.1, flick: 0.1, sweep: 0.05, loft: 0.3
+  },
+  normal_short: {
+    pull: 0.90, cut: 0.85, leave: 0.75, defend: 0.50,
+    straight_drive: 0.2, flick: 0.3, sweep: 0.1, loft: 0.4
+  },
+  slow_short: {
+    pull: 0.95, cut: 0.90, loft: 0.85, defend: 0.60,
+    straight_drive: 0.4, flick: 0.5, sweep: 0.2, leave: 0.6
+  },
+  inswinger_short: {
+    pull: 0.90, defend: 0.60, leave: 0.70, flick: 0.65,
+    cut: 0.4, straight_drive: 0.15, sweep: 0.1, loft: 0.3
+  },
+  outswinger_short: {
+    cut: 0.90, leave: 0.85, pull: 0.75, defend: 0.60,
+    straight_drive: 0.2, flick: 0.1, sweep: 0.05, loft: 0.4
+  },
+
+  // 5. Bouncer Variations
+  fast_bouncer: {
+    leave: 0.95, pull: 0.75, defend: 0.20, cut: 0.40,
+    straight_drive: 0.01, flick: 0.05, sweep: 0.01, loft: 0.25
+  },
+  normal_bouncer: {
+    leave: 0.90, pull: 0.80, defend: 0.35, cut: 0.50,
+    straight_drive: 0.05, flick: 0.1, sweep: 0.02, loft: 0.3
+  },
+  slow_bouncer: {
+    pull: 0.90, leave: 0.80, loft: 0.75, defend: 0.50,
+    cut: 0.6, straight_drive: 0.1, flick: 0.2, sweep: 0.05
+  },
+  inswinger_bouncer: {
+    leave: 0.90, pull: 0.80, defend: 0.30, cut: 0.35,
+    straight_drive: 0.02, flick: 0.1, sweep: 0.01, loft: 0.25
+  },
+  outswinger_bouncer: {
+    leave: 0.95, pull: 0.70, cut: 0.60, defend: 0.30,
+    straight_drive: 0.02, flick: 0.05, sweep: 0.01, loft: 0.25
+  },
+
+  // --- SPINNERS ---
   off_cutter: {
     defend: 0.8, leave: 0.7, cut: 0.65, cover_drive: 0.6,
     flick: 0.4, pull: 0.3, slog: 0.2, sweep: 0.15,
