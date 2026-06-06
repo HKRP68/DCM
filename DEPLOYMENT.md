@@ -47,6 +47,7 @@ For local Telegram Web App testing, use a tunnel such as ngrok or Cloudflare Tun
    3. `db/migration.sql` - creates `hilo_games` and keeps `profiles.last_daily` compatible with older installs.
    4. `db/cricket_migration.sql` - creates `cricket_matches` and adds cricket/shop columns for older installs.
    5. `db/rating_migration.sql` - optional for fresh installs because `db/neon_schema.sql` already includes `profiles.rating`, but safe to run.
+   6. `db/starter_pack_claim_migration.sql` - ensures older installs have the `profiles.claimed_starter` flag required by `/claim`.
 
 The code expects these Neon/Postgres tables:
 
