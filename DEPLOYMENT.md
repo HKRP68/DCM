@@ -7,7 +7,7 @@ This project runs a Node.js Telegram bot with an Express web server for the bonu
 - Node.js 18 or newer.
 - npm.
 - A Telegram bot token from [@BotFather](https://t.me/BotFather).
-- A Supabase project for persistent bot data.
+- A Neon Postgres database for persistent bot data.
 - A public HTTPS hostname. Telegram Web Apps require HTTPS in production.
 - A hosting provider that can run a long-lived Node process and expose an HTTP port. Render Web Service works with the existing `RENDER_EXTERNAL_HOSTNAME` support.
 
@@ -18,8 +18,9 @@ Create a `.env` file for local development or set these variables in your hostin
 | Variable | Required | Example | Description |
 | --- | --- | --- | --- |
 | `BOT_TOKEN` | Yes | `1234567890:AA...` | Telegram Bot API token from @BotFather. The bot is constructed from this value at startup, so the process will fail without it. |
-| `SUPABASE_URL` | Strongly recommended | `https://your-project-ref.supabase.co` | Supabase project URL. If this or `SUPABASE_KEY` is missing, database-backed features are bypassed or fail. |
-| `SUPABASE_KEY` | Strongly recommended | `eyJ...` | Supabase key used by the server. Use a server-side key only on trusted infrastructure and never expose it to browsers. |
+| `DATABASE_URL` | Strongly recommended | `postgresql://user:password@ep-example.us-east-1.aws.neon.tech/neondb?sslmode=require` | Neon Postgres pooled or direct connection string. If missing, database-backed features are bypassed or fail. `POSTGRES_URL` or `NEON_DATABASE_URL` also work as fallbacks. |
+| `PGSSL` | Optional | `disable` | Leave unset for Neon. Set to `disable` only for a local Postgres instance that does not use SSL. |
+| `PGPOOL_MAX` | Optional | `5` | Maximum Postgres connections used by the Neon driver pool. |
 | `PORT` | Optional | `3000` | Express listen port. Defaults to `3000`; most PaaS providers inject this automatically. |
 | `RENDER_EXTERNAL_HOSTNAME` | Optional for local, recommended for production | `undercover-bot.onrender.com` | Public hostname without protocol. Used to generate Mini App/cricket URLs and to self-ping on Render. If absent, the code falls back to `undercover-bot.onrender.com` for generated URLs. |
 
@@ -29,26 +30,25 @@ A checked-in template is available at `.env.example`.
 
 ```env
 BOT_TOKEN=1234567890:replace-with-your-telegram-bot-token
-SUPABASE_URL=https://your-project-ref.supabase.co
-SUPABASE_KEY=replace-with-your-supabase-key
+DATABASE_URL=postgresql://user:password@ep-example.us-east-1.aws.neon.tech/neondb?sslmode=require
 PORT=3000
 RENDER_EXTERNAL_HOSTNAME=localhost:3000
 ```
 
 For local Telegram Web App testing, use a tunnel such as ngrok or Cloudflare Tunnel and set `RENDER_EXTERNAL_HOSTNAME` to the public tunnel hostname without `https://`.
 
-## 3. Supabase setup
+## 3. Neon setup
 
-1. Create a Supabase project.
-2. Open **SQL Editor** in Supabase.
-3. Run the repository SQL files in this order:
-   1. `data/cricketplayers.sql` - creates and seeds the `cricketplayers` catalog.
-   2. Your base application schema for `group_stats`, `bonus_claims`, `group_settings`, and `group_rewards` if those tables do not already exist in your project. The cricket migration creates or upgrades `profiles` and `user_owned_players` itself.
-   3. `db/migration.sql` - creates `hilo_games` and adds `profiles.last_daily`.
-   4. `db/cricket_migration.sql` - creates `cricket_matches` and adds cricket/shop columns.
-4. Confirm Row Level Security policies allow the server key to perform the required reads/writes, or use a trusted service-role key only on the backend.
+1. Create a Neon project and database.
+2. Copy either the pooled or direct connection string and set it as `DATABASE_URL` on the server. Keep `sslmode=require` in the URL for Neon.
+3. Open the Neon SQL Editor, or connect with `psql`, and run the repository SQL files in this order:
+   1. `db/neon_schema.sql` - creates the base application tables for profiles, group stats, bonus claims, settings, rewards, and owned players.
+   2. `data/cricketplayers.sql` - creates and seeds the `cricketplayers` catalog.
+   3. `db/migration.sql` - creates `hilo_games` and keeps `profiles.last_daily` compatible with older installs.
+   4. `db/cricket_migration.sql` - creates `cricket_matches` and adds cricket/shop columns for older installs.
+   5. `db/rating_migration.sql` - optional for fresh installs because `db/neon_schema.sql` already includes `profiles.rating`, but safe to run.
 
-The code expects these Supabase tables:
+The code expects these Neon/Postgres tables:
 
 - `profiles`
 - `group_stats`
@@ -95,8 +95,7 @@ curl http://localhost:3000/cricket
    - **Health Check Path:** `/`
 4. Add environment variables:
    - `BOT_TOKEN`
-   - `SUPABASE_URL`
-   - `SUPABASE_KEY`
+   - `DATABASE_URL`
    - `RENDER_EXTERNAL_HOSTNAME` (normally Render provides this; set it manually if generated Mini App URLs point to the wrong host)
    - Do not hard-code `PORT`; Render injects it.
 5. Deploy the service.
@@ -134,11 +133,11 @@ In [@BotFather](https://t.me/BotFather):
 
 ## 8. Production notes
 
-- Keep `.env` and `SUPABASE_KEY` out of git.
+- Keep `.env` and `DATABASE_URL` out of git.
 - Prefer one running bot process per token. Multiple long-polling instances with the same `BOT_TOKEN` can conflict.
 - The code uses long polling (`bot.start()`), so do not configure a Telegram webhook for the same bot token unless you refactor startup.
 - `RENDER_EXTERNAL_HOSTNAME` should not include `https://`; the app strips a protocol if present, but storing only the hostname avoids malformed links.
-- Missing Supabase credentials cause database features to be bypassed in `db/supabase.js`, but many user-facing commands rely on persistence. Treat Supabase as required for production.
+- Missing Neon/Postgres credentials cause database features to be bypassed in `db/supabase.js`, but many user-facing commands rely on persistence. Treat `DATABASE_URL` as required for production. The file name is retained as a compatibility module for existing bot imports.
 - The Adsgram browser integration currently uses a hard-coded block ID in `index.html`; there is no Adsgram environment variable in the Node deployment.
 - Static assets under `public/`, `assets/`, and `data/` must be included in the deployed repository.
 - The server bundles `data/cricketPlayers.json` as a read-only cricket catalog fallback so the shop and starter pack remain usable if the `cricketplayers` table is temporarily unavailable or unseeded. Purchases and awarded squads still require `user_owned_players` and `profiles` persistence.
@@ -146,9 +145,9 @@ In [@BotFather](https://t.me/BotFather):
 ## 9. Updating an existing deployment
 
 1. Pull or deploy the new code.
-2. Run any new SQL migrations in Supabase before restarting the service.
+2. Run any new SQL migrations in Neon before restarting the service.
 3. Restart/redeploy the Node service.
-4. Check logs for Telegram auth, Supabase errors, and match recovery messages.
+4. Check logs for Telegram auth, Neon/Postgres errors, and match recovery messages.
 5. Run the health endpoint and a Telegram `/ping` command.
 
 ## 10. Troubleshooting
@@ -157,7 +156,7 @@ In [@BotFather](https://t.me/BotFather):
 | --- | --- | --- |
 | Process exits immediately on startup | Missing or invalid `BOT_TOKEN` | Verify the token from @BotFather and redeploy. |
 | Mini App buttons open the wrong domain | Missing/wrong `RENDER_EXTERNAL_HOSTNAME` | Set it to your public host, without protocol. |
-| Profiles, coins, shop, or leaderboards fail | Missing Supabase credentials or tables | Set `SUPABASE_URL`/`SUPABASE_KEY` and run SQL setup. The bundled cricket catalog keeps shop browsing available, but purchases still require persistence tables. |
+| Profiles, coins, shop, or leaderboards fail | Missing Neon credentials or tables | Set `DATABASE_URL` and run SQL setup. The bundled cricket catalog keeps shop browsing available, but purchases still require persistence tables. |
 | `/claim` reports `Database error checking owned players.` | Missing or outdated `user_owned_players` table | Run the latest `db/cricket_migration.sql`, which creates the table and adds any missing cricket columns to an existing table. |
 | Telegram Web App does not open | Domain not configured in BotFather or not HTTPS | Configure the production HTTPS domain in BotFather. |
 | Duplicate bot responses or polling errors | More than one process uses the same token | Stop duplicate deployments/workers for that token. |
