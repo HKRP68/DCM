@@ -363,7 +363,12 @@ async function ensureStarterPackSchema() {
     await supabase.query(`ALTER TABLE user_owned_players ADD COLUMN IF NOT EXISTS squad_order INT DEFAULT 0`);
     await supabase.query(`UPDATE user_owned_players SET squad_order = COALESCE(squad_order, 0)`);
     await supabase.query(`ALTER TABLE user_owned_players ALTER COLUMN squad_order SET DEFAULT 0`);
-    await supabase.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_user_owned_players_unique_player ON user_owned_players(user_id, player_id, sport)`);
+    // Do not create the user/player/sport uniqueness constraint here.  This
+    // repair path runs inline with /claim and must tolerate dirty partial
+    // deployments, including databases that already contain duplicate owned
+    // player rows.  Building a unique index in that state raises a duplicate-key
+    // error and prevents users from claiming before we even fetch their profile;
+    // keep only the non-unique lookup indexes in this user-facing flow.
     await supabase.query(`CREATE INDEX IF NOT EXISTS idx_user_owned_players_user_sport ON user_owned_players(user_id, sport)`);
     await supabase.query(`CREATE INDEX IF NOT EXISTS idx_profiles_rating ON profiles(rating DESC, wins DESC, coins DESC)`);
 
