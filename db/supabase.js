@@ -1,5 +1,4 @@
 const { createClient } = require('@supabase/supabase-js');
-const fallbackCricketPlayers = require('../data/cricketPlayers.json');
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_KEY;
@@ -74,22 +73,23 @@ async function recordWin(userId, firstName, chatId) {
   const release = await acquireLock(userId);
   try {
     let { data: profile } = await supabase.from('profiles').select('*').eq('user_id', userId).single();
+    const finalName = (firstName && firstName !== 'cricket') ? firstName : (profile?.first_name || 'User');
     if (profile) {
       const newCoins = (profile.coins || 0) + 200;
       await supabase.from('profiles').update({ 
           wins: profile.wins + 1, 
           matches_played: profile.matches_played + 1, 
-          first_name: firstName, 
+          first_name: finalName, 
           coins: newCoins 
       }).eq('user_id', userId);
     } else {
-      await supabase.from('profiles').insert({ user_id: userId, first_name: firstName, wins: 1, matches_played: 1, coins: 2200 });
+      await supabase.from('profiles').insert({ user_id: userId, first_name: finalName, wins: 1, matches_played: 1, coins: 2200 });
     }
+    // No lock needed for group stats (no coins)
+    await updateGroupStat(userId, chatId, finalName, true);
   } finally {
     releaseLock(release);
   }
-  // No lock needed for group stats (no coins)
-  await updateGroupStat(userId, chatId, firstName, true);
 }
 
 async function recordLoss(userId, firstName, chatId) {
@@ -97,27 +97,29 @@ async function recordLoss(userId, firstName, chatId) {
   const release = await acquireLock(userId);
   try {
     let { data: profile } = await supabase.from('profiles').select('*').eq('user_id', userId).single();
+    const finalName = (firstName && firstName !== 'cricket') ? firstName : (profile?.first_name || 'User');
     if (profile) {
-      await supabase.from('profiles').update({ matches_played: profile.matches_played + 1, first_name: firstName }).eq('user_id', userId);
+      await supabase.from('profiles').update({ matches_played: profile.matches_played + 1, first_name: finalName }).eq('user_id', userId);
     } else {
-      await supabase.from('profiles').insert({ user_id: userId, first_name: firstName, wins: 0, matches_played: 1, coins: 2000 });
+      await supabase.from('profiles').insert({ user_id: userId, first_name: finalName, wins: 0, matches_played: 1, coins: 2000 });
     }
+    await updateGroupStat(userId, chatId, finalName, false);
   } finally {
     releaseLock(release);
   }
-  await updateGroupStat(userId, chatId, firstName, false);
 }
 
 async function updateGroupStat(userId, chatId, firstName, isWin) {
   let { data: gstat } = await supabase.from('group_stats').select('*').eq('user_id', userId).eq('chat_id', chatId).single();
+  const finalName = (firstName && firstName !== 'cricket') ? firstName : (gstat?.first_name || 'User');
   if (gstat) {
     await supabase.from('group_stats').update({ 
         wins: gstat.wins + (isWin ? 1 : 0), 
         matches_played: gstat.matches_played + 1, 
-        first_name: firstName 
+        first_name: finalName 
     }).eq('user_id', userId).eq('chat_id', chatId);
   } else {
-    await supabase.from('group_stats').insert({ user_id: userId, chat_id: chatId, first_name: firstName, wins: isWin ? 1 : 0, matches_played: 1 });
+    await supabase.from('group_stats').insert({ user_id: userId, chat_id: chatId, first_name: finalName, wins: isWin ? 1 : 0, matches_played: 1 });
   }
 }
 
@@ -164,33 +166,22 @@ async function getGlobalLeaderboard(sortBy = 'wins') {
   }
 
   let result = [];
+  let query = supabase.from('profiles').select('*');
   if (sortBy === 'rating') {
-    const { data: profiles } = await supabase.from('profiles').select('*');
-    if (!profiles) return [];
-    const { data: owned } = await supabase.from('user_owned_players').select('user_id, player_id').eq('sport', 'cricket');
-    const cricket = await getCricketPlayers();
-    const ovrMap = new Map((cricket || []).map(p => [p.id, p.ovr || 0]));
-    
-    const userPlayers = new Map();
-    (owned || []).forEach(o => {
-      if (!userPlayers.has(o.user_id)) userPlayers.set(o.user_id, []);
-      userPlayers.get(o.user_id).push(ovrMap.get(o.player_id) || 0);
-    });
-    
-    profiles.forEach(p => {
-      const playerOvrs = userPlayers.get(p.user_id) || [];
-      playerOvrs.sort((a, b) => b - a);
-      const top11 = playerOvrs.slice(0, 11);
-      const teamRating = Math.round(top11.reduce((sum, ovr) => sum + ovr, 0) / 11);
-      p.rating = teamRating;
-    });
-    
-    profiles.sort((a, b) => b.rating - a.rating || b.wins - a.wins || b.coins - a.coins);
-    result = profiles.slice(0, 10);
+    query = query.order('rating', { ascending: false })
+                 .order('wins', { ascending: false })
+                 .order('coins', { ascending: false });
+  } else if (sortBy === 'wins') {
+    query = query.order('wins', { ascending: false })
+                 .order('rating', { ascending: false })
+                 .order('coins', { ascending: false });
   } else {
-    const { data } = await supabase.from('profiles').select('*').order(sortBy, { ascending: false }).limit(10);
-    result = data || [];
+    query = query.order(sortBy, { ascending: false })
+                 .order('wins', { ascending: false })
+                 .order('rating', { ascending: false });
   }
+  const { data } = await query.limit(10);
+  result = data || [];
 
   leaderboardCache.set(sortBy, { timestamp: now, data: result });
   return result;
@@ -201,131 +192,93 @@ async function getGroupLeaderboard(chatId, sortBy = 'wins') {
   if (sortBy === 'wins') {
     const { data } = await supabase.from('group_stats').select('*').eq('chat_id', chatId).order('wins', { ascending: false }).limit(10);
     return data;
-  } else if (sortBy === 'coins') {
-    // For group coins: fetch all user IDs in this group, then get their global coin rankings
+  } else if (sortBy === 'coins' || sortBy === 'rating') {
     const { data: participants } = await supabase.from('group_stats').select('user_id').eq('chat_id', chatId);
     if (!participants || participants.length === 0) return [];
-    
     const userIds = participants.map(p => p.user_id);
-    const { data: profiles } = await supabase.from('profiles')
-      .select('user_id, first_name, coins')
-      .in('user_id', userIds)
-      .order('coins', { ascending: false })
-      .limit(10);
-      
+    
+    let query = supabase.from('profiles').select('*').in('user_id', userIds);
+    if (sortBy === 'coins') {
+      query = query.order('coins', { ascending: false })
+                   .order('wins', { ascending: false })
+                   .order('rating', { ascending: false });
+    } else {
+      query = query.order('rating', { ascending: false })
+                   .order('wins', { ascending: false })
+                   .order('coins', { ascending: false });
+    }
+    const { data: profiles } = await query.limit(10);
     return profiles || [];
-  } else if (sortBy === 'rating') {
-    const { data: participants } = await supabase.from('group_stats').select('user_id').eq('chat_id', chatId);
-    if (!participants || participants.length === 0) return [];
-    const userIds = participants.map(p => p.user_id);
-    
-    const { data: profiles } = await supabase.from('profiles')
-      .select('*')
-      .in('user_id', userIds);
-    if (!profiles || profiles.length === 0) return [];
-    
-    const { data: owned } = await supabase.from('user_owned_players').select('user_id, player_id').eq('sport', 'cricket').in('user_id', userIds);
-    const cricket = await getCricketPlayers();
-    const ovrMap = new Map((cricket || []).map(p => [p.id, p.ovr || 0]));
-    
-    const userPlayers = new Map();
-    (owned || []).forEach(o => {
-      if (!userPlayers.has(o.user_id)) userPlayers.set(o.user_id, []);
-      userPlayers.get(o.user_id).push(ovrMap.get(o.player_id) || 0);
-    });
-    
-    profiles.forEach(p => {
-      const playerOvrs = userPlayers.get(p.user_id) || [];
-      playerOvrs.sort((a, b) => b - a);
-      const top11 = playerOvrs.slice(0, 11);
-      const teamRating = Math.round(top11.reduce((sum, ovr) => sum + ovr, 0) / 11);
-      p.rating = teamRating;
-    });
-    
-    profiles.sort((a, b) => b.rating - a.rating || b.wins - a.wins || b.coins - a.coins);
-    return profiles.slice(0, 10);
   }
+  return [];
 }
 
 async function getUserGlobalRank(userId, sortBy = 'wins') {
   if (!supabase) return null;
-  if (sortBy === 'rating') {
-    const { data: allProfiles } = await supabase.from('profiles').select('user_id, wins, coins');
-    if (!allProfiles) return null;
-    const { data: owned } = await supabase.from('user_owned_players').select('user_id, player_id').eq('sport', 'cricket');
-    const cricket = await getCricketPlayers();
-    const ovrMap = new Map((cricket || []).map(p => [p.id, p.ovr || 0]));
-    
-    const userPlayers = new Map();
-    (owned || []).forEach(o => {
-      if (!userPlayers.has(o.user_id)) userPlayers.set(o.user_id, []);
-      userPlayers.get(o.user_id).push(ovrMap.get(o.player_id) || 0);
-    });
-    
-    const ratings = allProfiles.map(p => {
-      const playerOvrs = userPlayers.get(p.user_id) || [];
-      playerOvrs.sort((a, b) => b - a);
-      const top11 = playerOvrs.slice(0, 11);
-      const teamRating = Math.round(top11.reduce((sum, ovr) => sum + ovr, 0) / 11);
-      return { user_id: p.user_id, rating: teamRating, wins: p.wins || 0, coins: p.coins || 0 };
-    });
-    
-    ratings.sort((a, b) => b.rating - a.rating || b.wins - a.wins || b.coins - a.coins);
-    const targetIndex = ratings.findIndex(r => r.user_id === userId);
-    return targetIndex !== -1 ? targetIndex + 1 : null;
-  }
   const profile = await getProfile(userId);
   if (!profile) return null;
+  
   const val = profile[sortBy] || 0;
+  
+  if (sortBy === 'rating') {
+    const { count: higherRating } = await supabase.from('profiles').select('user_id', { count: 'exact', head: true }).gt('rating', val);
+    const { count: sameRatingMoreWins } = await supabase.from('profiles').select('user_id', { count: 'exact', head: true }).eq('rating', val).gt('wins', profile.wins || 0);
+    const { count: sameRatingSameWinsMoreCoins } = await supabase.from('profiles').select('user_id', { count: 'exact', head: true }).eq('rating', val).eq('wins', profile.wins || 0).gt('coins', profile.coins || 0);
+    
+    return (higherRating || 0) + (sameRatingMoreWins || 0) + (sameRatingSameWinsMoreCoins || 0) + 1;
+  }
+  
+  if (sortBy === 'wins') {
+    const { count: higherWins } = await supabase.from('profiles').select('user_id', { count: 'exact', head: true }).gt('wins', val);
+    const { count: sameWinsMoreRating } = await supabase.from('profiles').select('user_id', { count: 'exact', head: true }).eq('wins', val).gt('rating', profile.rating || 0);
+    const { count: sameWinsSameRatingMoreCoins } = await supabase.from('profiles').select('user_id', { count: 'exact', head: true }).eq('wins', val).eq('rating', profile.rating || 0).gt('coins', profile.coins || 0);
+    
+    return (higherWins || 0) + (sameWinsMoreRating || 0) + (sameWinsSameRatingMoreCoins || 0) + 1;
+  }
+  
+  if (sortBy === 'coins') {
+    const { count: higherCoins } = await supabase.from('profiles').select('user_id', { count: 'exact', head: true }).gt('coins', val);
+    const { count: sameCoinsMoreWins } = await supabase.from('profiles').select('user_id', { count: 'exact', head: true }).eq('coins', val).gt('wins', profile.wins || 0);
+    const { count: sameCoinsSameWinsMoreRating } = await supabase.from('profiles').select('user_id', { count: 'exact', head: true }).eq('coins', val).eq('wins', profile.wins || 0).gt('rating', profile.rating || 0);
+    
+    return (higherCoins || 0) + (sameCoinsMoreWins || 0) + (sameCoinsSameWinsMoreRating || 0) + 1;
+  }
+
   const { count } = await supabase.from('profiles').select('user_id', { count: 'exact', head: true }).gt(sortBy, val);
   return (count !== null ? count : 0) + 1;
 }
 
 async function getUserGroupRank(chatId, userId, sortBy = 'wins') {
   if (!supabase) return null;
+  
   if (sortBy === 'wins') {
     const { data: gstat } = await supabase.from('group_stats').select('wins').eq('user_id', userId).eq('chat_id', chatId).single();
     if (!gstat) return null;
     const { count } = await supabase.from('group_stats').select('user_id', { count: 'exact', head: true }).eq('chat_id', chatId).gt('wins', gstat.wins);
     return (count !== null ? count : 0) + 1;
-  } else if (sortBy === 'coins') {
-    const profile = await getProfile(userId);
-    if (!profile) return null;
-    const { data: participants } = await supabase.from('group_stats').select('user_id').eq('chat_id', chatId);
-    if (!participants || participants.length === 0) return null;
-    const userIds = participants.map(p => p.user_id);
-    const { count } = await supabase.from('profiles').select('user_id', { count: 'exact', head: true }).in('user_id', userIds).gt('coins', profile.coins);
-    return (count !== null ? count : 0) + 1;
-  } else if (sortBy === 'rating') {
-    const { data: participants } = await supabase.from('group_stats').select('user_id').eq('chat_id', chatId);
-    if (!participants || participants.length === 0) return null;
-    const userIds = participants.map(p => p.user_id);
-    
-    const { data: profiles } = await supabase.from('profiles').select('user_id, wins, coins').in('user_id', userIds);
-    if (!profiles || profiles.length === 0) return null;
-    
-    const { data: owned } = await supabase.from('user_owned_players').select('user_id, player_id').eq('sport', 'cricket').in('user_id', userIds);
-    const cricket = await getCricketPlayers();
-    const ovrMap = new Map((cricket || []).map(p => [p.id, p.ovr || 0]));
-    
-    const userPlayers = new Map();
-    (owned || []).forEach(o => {
-      if (!userPlayers.has(o.user_id)) userPlayers.set(o.user_id, []);
-      userPlayers.get(o.user_id).push(ovrMap.get(o.player_id) || 0);
-    });
-    
-    const ratings = profiles.map(p => {
-      const playerOvrs = userPlayers.get(p.user_id) || [];
-      playerOvrs.sort((a, b) => b - a);
-      const top11 = playerOvrs.slice(0, 11);
-      const teamRating = Math.round(top11.reduce((sum, ovr) => sum + ovr, 0) / 11);
-      return { user_id: p.user_id, rating: teamRating, wins: p.wins || 0, coins: p.coins || 0 };
-    });
-    
-    ratings.sort((a, b) => b.rating - a.rating || b.wins - a.wins || b.coins - a.coins);
-    const targetIndex = ratings.findIndex(r => r.user_id === userId);
-    return targetIndex !== -1 ? targetIndex + 1 : null;
   }
+  
+  const profile = await getProfile(userId);
+  if (!profile) return null;
+  const { data: participants } = await supabase.from('group_stats').select('user_id').eq('chat_id', chatId);
+  if (!participants || participants.length === 0) return null;
+  const userIds = participants.map(p => p.user_id);
+  
+  if (sortBy === 'coins') {
+    const { count: higherCoins } = await supabase.from('profiles').select('user_id', { count: 'exact', head: true }).in('user_id', userIds).gt('coins', profile.coins || 0);
+    const { count: sameCoinsMoreWins } = await supabase.from('profiles').select('user_id', { count: 'exact', head: true }).in('user_id', userIds).eq('coins', profile.coins || 0).gt('wins', profile.wins || 0);
+    const { count: sameCoinsSameWinsMoreRating } = await supabase.from('profiles').select('user_id', { count: 'exact', head: true }).in('user_id', userIds).eq('coins', profile.coins || 0).eq('wins', profile.wins || 0).gt('rating', profile.rating || 0);
+    return (higherCoins || 0) + (sameCoinsMoreWins || 0) + (sameCoinsSameWinsMoreRating || 0) + 1;
+  }
+  
+  if (sortBy === 'rating') {
+    const { count: higherRating } = await supabase.from('profiles').select('user_id', { count: 'exact', head: true }).in('user_id', userIds).gt('rating', profile.rating || 0);
+    const { count: sameRatingMoreWins } = await supabase.from('profiles').select('user_id', { count: 'exact', head: true }).in('user_id', userIds).eq('rating', profile.rating || 0).gt('wins', profile.wins || 0);
+    const { count: sameRatingSameWinsMoreCoins } = await supabase.from('profiles').select('user_id', { count: 'exact', head: true }).in('user_id', userIds).eq('rating', profile.rating || 0).eq('wins', profile.wins || 0).gt('coins', profile.coins || 0);
+    return (higherRating || 0) + (sameRatingMoreWins || 0) + (sameRatingSameWinsMoreCoins || 0) + 1;
+  }
+  
+  return null;
 }
 
 async function getGlobalStats() {
@@ -645,7 +598,7 @@ async function getUserOwnedPlayers(userId) {
   if (!supabase) return [];
   try {
     const { data, error } = await supabase.from('user_owned_players')
-      .select('player_id, sport')
+      .select('player_id, sport, acquired_at')
       .eq('user_id', userId)
       .neq('sport', 'jackpot');
     if (error) {
@@ -660,7 +613,7 @@ async function getUserOwnedPlayers(userId) {
 }
 
 async function getCricketPlayers() {
-  if (!supabase) return fallbackCricketPlayers;
+  if (!supabase) return [];
   const now = Date.now();
   if (cachedCricketPlayers && (now - lastCacheTime < CACHE_DURATION)) {
     return cachedCricketPlayers;
@@ -675,24 +628,20 @@ async function getCricketPlayers() {
         .select('*')
         .range(from, from + limit - 1);
       if (error) {
-        console.error("Error fetching cricket players range; using bundled catalog:", error);
-        return fallbackCricketPlayers;
+        console.error("Error fetching cricket players range:", error);
+        break;
       }
       if (!data || data.length === 0) break;
       allPlayers.push(...data);
       if (data.length < limit) break;
       from += limit;
     }
-    if (allPlayers.length === 0) {
-      console.warn("Cricket player catalog is empty in Supabase; using bundled catalog.");
-      return fallbackCricketPlayers;
-    }
     cachedCricketPlayers = allPlayers;
     lastCacheTime = now;
     return allPlayers;
   } catch (e) {
-    console.error("Failed to get cricket players; using bundled catalog:", e);
-    return fallbackCricketPlayers;
+    console.error("Failed to get cricket players:", e);
+    return [];
   }
 }
 
@@ -760,6 +709,8 @@ async function buyPlayer(userId, playerId, sport, price) {
     const newCoins = currentCoins - price;
     await supabase.from('profiles').update({ coins: newCoins }).eq('user_id', userId);
 
+    await updateUserRating(userId);
+
     return { success: true, newBalance: newCoins };
   } catch (e) {
     console.error("Purchase player transaction failed:", e);
@@ -803,6 +754,8 @@ async function sellPlayer(userId, playerId, sport, sellPrice) {
 
     const newCoins = (profile.coins || 0) + sellPrice;
     await supabase.from('profiles').update({ coins: newCoins }).eq('user_id', userId);
+
+    await updateUserRating(userId);
 
     return { success: true, newBalance: newCoins };
   } catch (e) {
@@ -851,6 +804,8 @@ async function awardPlayer(userId, playerId, sport) {
       console.error("Award player error:", insertError);
       return { success: false, error: 'Failed to record award.' };
     }
+
+    await updateUserRating(userId);
 
     return { success: true, alreadyOwned: false };
   } catch (e) {
@@ -981,6 +936,8 @@ async function swapSquadOrder(userId, pos1, pos2) {
         .eq('id', item.id);
     });
     await Promise.all(updates);
+
+    await updateUserRating(userId);
 
     return { success: true };
   } catch (e) {
@@ -1135,6 +1092,8 @@ async function removePlayerFromSquad(userId, playerId, sport) {
       return { success: false, error: 'Failed to delete player from database.' };
     }
 
+    await updateUserRating(userId);
+
     return { success: true };
   } catch (e) {
     console.error("[DB] Remove player exception:", e);
@@ -1185,25 +1144,21 @@ async function claimStarterPack(userId) {
   
   const release = await acquireLock(userId);
   try {
-    // 1. Treat the owned squad as the source of truth. Older deployments may
-    // not have the optional profiles.claimed_starter column yet, and querying it
-    // would prevent every starter-pack claim before squad creation can begin.
-    const { data: ownedRows, error: ownedError } = await supabase
-      .from('user_owned_players')
-      .select('player_id')
+    // 1. Check if user already claimed
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('claimed_starter')
       .eq('user_id', userId)
-      .eq('sport', 'cricket');
+      .maybeSingle();
       
-    if (ownedError) {
-      console.error("Error fetching owned players for starter pack:", ownedError);
-      return { success: false, error: 'Database error checking owned players.' };
+    if (profileError) {
+      console.error("Error fetching profile for starter pack:", profileError);
+      return { success: false, error: 'Database error fetching profile.' };
     }
-      
-    const ownedPlayers = ownedRows || [];
-    if (ownedPlayers.length >= 11) {
+    
+    if (profile && profile.claimed_starter) {
       return { success: false, error: 'ALREADY_CLAIMED' };
     }
-    const isBackfill = ownedPlayers.length > 0;
     
     // 2. Fetch all cricket players
     const players = await getCricketPlayers();
@@ -1211,135 +1166,54 @@ async function claimStarterPack(userId) {
       return { success: false, error: 'No players available in database.' };
     }
     
-    const ovrMap = new Map((players || []).map(p => [p.id, p]));
-    let allSelected = [];
-    let startSquadOrder = 1;
+    // 3. Filter players
+    // Low OVR players: OVR <= 75
+    // Star players: OVR == 84
+    const lowKeepers = players.filter(p => p.ovr && p.ovr <= 75 && p.role === 'wicket_keeper');
+    const lowBatsmen = players.filter(p => p.ovr && p.ovr <= 75 && p.role === 'batsman');
+    const lowAllRounders = players.filter(p => p.ovr && p.ovr <= 75 && p.role === 'all_rounder');
+    const lowBowlers = players.filter(p => p.ovr && p.ovr <= 75 && p.role === 'bowler');
+    const starPlayers = players.filter(p => p.ovr === 84);
     
-    if (isBackfill) {
-      // 1. Group currently owned players by role
-      const ownedKeepers = [];
-      const ownedBatsmen = [];
-      const ownedAllRounders = [];
-      const ownedBowlers = [];
-
-      ownedPlayers.forEach(o => {
-        const p = ovrMap.get(o.player_id);
-        if (p) {
-          if (p.role === 'wicket_keeper') ownedKeepers.push(p);
-          else if (p.role === 'batsman') ownedBatsmen.push(p);
-          else if (p.role === 'all_rounder') ownedAllRounders.push(p);
-          else if (p.role === 'bowler') ownedBowlers.push(p);
-        }
-      });
-
-      // Target counts: Keeper: 1, Batsman: 4, All-Rounder: 2, Bowler: 4
-      const neededKeepers = Math.max(0, 1 - ownedKeepers.length);
-      const neededBatsmen = Math.max(0, 4 - ownedBatsmen.length);
-      const neededAllRounders = Math.max(0, 2 - ownedAllRounders.length);
-      const neededBowlers = Math.max(0, 4 - ownedBowlers.length);
-
-      const roleQueue = [];
-      for (let i = 0; i < neededKeepers; i++) roleQueue.push('wicket_keeper');
-      for (let i = 0; i < neededBatsmen; i++) roleQueue.push('batsman');
-      for (let i = 0; i < neededAllRounders; i++) roleQueue.push('all_rounder');
-      for (let i = 0; i < neededBowlers; i++) roleQueue.push('bowler');
-
-      const targetAddCount = 11 - ownedPlayers.length;
-      let finalRolesToAdd = [];
-      if (roleQueue.length >= targetAddCount) {
-        finalRolesToAdd = roleQueue.slice(0, targetAddCount);
-      } else {
-        finalRolesToAdd = [...roleQueue];
-        const wildcards = ['batsman', 'bowler', 'all_rounder', 'wicket_keeper'];
-        while (finalRolesToAdd.length < targetAddCount) {
-          finalRolesToAdd.push(wildcards[finalRolesToAdd.length % wildcards.length]);
-        }
-      }
-
-      const ownedIds = new Set(ownedPlayers.map(o => o.player_id));
-      const lowKeepers = players.filter(p => p.ovr && p.ovr <= 75 && p.role === 'wicket_keeper' && !ownedIds.has(p.id));
-      const lowBatsmen = players.filter(p => p.ovr && p.ovr <= 75 && p.role === 'batsman' && !ownedIds.has(p.id));
-      const lowAllRounders = players.filter(p => p.ovr && p.ovr <= 75 && p.role === 'all_rounder' && !ownedIds.has(p.id));
-      const lowBowlers = players.filter(p => p.ovr && p.ovr <= 75 && p.role === 'bowler' && !ownedIds.has(p.id));
-
-      const shuffle = (arr) => [...arr].sort(() => 0.5 - Math.random());
-      const shuffledKeepers = shuffle(lowKeepers);
-      const shuffledBatsmen = shuffle(lowBatsmen);
-      const shuffledAllRounders = shuffle(lowAllRounders);
-      const shuffledBowlers = shuffle(lowBowlers);
-
-      finalRolesToAdd.forEach(role => {
-        let picked = null;
-        if (role === 'wicket_keeper' && shuffledKeepers.length > 0) picked = shuffledKeepers.pop();
-        else if (role === 'batsman' && shuffledBatsmen.length > 0) picked = shuffledBatsmen.pop();
-        else if (role === 'all_rounder' && shuffledAllRounders.length > 0) picked = shuffledAllRounders.pop();
-        else if (role === 'bowler' && shuffledBowlers.length > 0) picked = shuffledBowlers.pop();
-
-        if (picked) {
-          allSelected.push(picked);
-        }
-      });
-
-      const { data: maxRow } = await supabase
-        .from('user_owned_players')
-        .select('squad_order')
-        .eq('user_id', userId)
-        .eq('sport', 'cricket')
-        .order('squad_order', { ascending: false })
-        .limit(1);
-      
-      startSquadOrder = (maxRow && maxRow.length > 0 ? maxRow[0].squad_order : 0) + 1;
-      
-    } else {
-      // 3. Filter players
-      // Low OVR players: OVR <= 75
-      // Star players: OVR == 84
-      const lowKeepers = players.filter(p => p.ovr && p.ovr <= 75 && p.role === 'wicket_keeper');
-      const lowBatsmen = players.filter(p => p.ovr && p.ovr <= 75 && p.role === 'batsman');
-      const lowAllRounders = players.filter(p => p.ovr && p.ovr <= 75 && p.role === 'all_rounder');
-      const lowBowlers = players.filter(p => p.ovr && p.ovr <= 75 && p.role === 'bowler');
-      const starPlayers = players.filter(p => p.ovr === 84);
-      
-      if (lowKeepers.length < 1 || lowBatsmen.length < 4 || lowAllRounders.length < 2 || lowBowlers.length < 4) {
-        return { success: false, error: 'Insufficient low OVR players in database.' };
-      }
-      if (starPlayers.length < 1) {
-        return { success: false, error: 'No 84 OVR star players found in database.' };
-      }
-      
-      // 4. Pick 1 star player
-      const selectedStar = starPlayers[Math.floor(Math.random() * starPlayers.length)];
-      const starRole = selectedStar.role;
-      
-      // Target counts for the final Playing XI:
-      // Wicket Keepers: 1, Batsmen: 4, All-Rounders: 2, Bowlers: 4
-      let neededKeepers = 1;
-      let neededBatsmen = 4;
-      let neededAllRounders = 2;
-      let neededBowlers = 4;
-      
-      if (starRole === 'wicket_keeper') neededKeepers--;
-      else if (starRole === 'batsman') neededBatsmen--;
-      else if (starRole === 'all_rounder') neededAllRounders--;
-      else if (starRole === 'bowler') neededBowlers--;
-      
-      // Shuffle helper
-      const shuffle = (arr) => [...arr].sort(() => 0.5 - Math.random());
-      
-      const selectedKeepers = shuffle(lowKeepers).slice(0, neededKeepers);
-      const selectedBatsmen = shuffle(lowBatsmen).slice(0, neededBatsmen);
-      const selectedAllRounders = shuffle(lowAllRounders).slice(0, neededAllRounders);
-      const selectedBowlers = shuffle(lowBowlers).slice(0, neededBowlers);
-      
-      allSelected = [
-        selectedStar,
-        ...selectedKeepers,
-        ...selectedBatsmen,
-        ...selectedAllRounders,
-        ...selectedBowlers
-      ];
-      startSquadOrder = 1;
+    if (lowKeepers.length < 1 || lowBatsmen.length < 4 || lowAllRounders.length < 2 || lowBowlers.length < 4) {
+      return { success: false, error: 'Insufficient low OVR players in database.' };
     }
+    if (starPlayers.length < 1) {
+      return { success: false, error: 'No 84 OVR star players found in database.' };
+    }
+    
+    // 4. Pick 1 star player
+    const selectedStar = starPlayers[Math.floor(Math.random() * starPlayers.length)];
+    const starRole = selectedStar.role;
+    
+    // Target counts for the final Playing XI:
+    // Wicket Keepers: 1, Batsmen: 4, All-Rounders: 2, Bowlers: 4
+    let neededKeepers = 1;
+    let neededBatsmen = 4;
+    let neededAllRounders = 2;
+    let neededBowlers = 4;
+    
+    if (starRole === 'wicket_keeper') neededKeepers--;
+    else if (starRole === 'batsman') neededBatsmen--;
+    else if (starRole === 'all_rounder') neededAllRounders--;
+    else if (starRole === 'bowler') neededBowlers--;
+    
+    // Shuffle helper
+    const shuffle = (arr) => [...arr].sort(() => 0.5 - Math.random());
+    
+    const selectedKeepers = shuffle(lowKeepers).slice(0, neededKeepers);
+    const selectedBatsmen = shuffle(lowBatsmen).slice(0, neededBatsmen);
+    const selectedAllRounders = shuffle(lowAllRounders).slice(0, neededAllRounders);
+    const selectedBowlers = shuffle(lowBowlers).slice(0, neededBowlers);
+    
+    const allSelected = [
+      selectedStar,
+      ...selectedKeepers,
+      ...selectedBatsmen,
+      ...selectedAllRounders,
+      ...selectedBowlers
+    ];
+    const startSquadOrder = 1;
     
     // 5. Insert players into user_owned_players
     const inserts = allSelected.map((p, idx) => ({
@@ -1362,13 +1236,13 @@ async function claimStarterPack(userId) {
       .eq('user_id', userId);
       
     if (updateError) {
-      // This marker is retained for migrated deployments, but the owned squad is
-      // authoritative. Do not fail a completed claim when the optional column is
-      // absent or the profile marker cannot be updated.
-      console.warn("Unable to update optional starter claim marker:", updateError);
+      console.error("Error updating profile starter claim state:", updateError);
+      return { success: false, error: 'Failed to update starter pack claim status.' };
     }
     
-    return { success: true, players: allSelected, isBackfill };
+    await updateUserRating(userId);
+    
+    return { success: true, players: allSelected, isBackfill: false };
   } catch (e) {
     console.error("claimStarterPack exception:", e);
     return { success: false, error: 'An unexpected database error occurred.' };
@@ -1391,9 +1265,27 @@ async function getUserTeamRating(userId) {
   return Math.round(top11.reduce((sum, ovr) => sum + ovr, 0) / 11);
 }
 
+async function updateUserRating(userId) {
+  if (!supabase) return 0;
+  try {
+    const rating = await getUserTeamRating(userId);
+    const { error } = await supabase.from('profiles').update({ rating }).eq('user_id', userId);
+    if (error) {
+      console.error(`[DB] Error updating profile rating for user ${userId}:`, error);
+    }
+    // Clear/invalidate cache
+    leaderboardCache.clear();
+    return rating;
+  } catch (e) {
+    console.error(`[DB] updateUserRating exception for user ${userId}:`, e);
+    return 0;
+  }
+}
+
 module.exports = {
   supabase,
   getUserTeamRating,
+  updateUserRating,
   getUserCricketTeam,
   recordWin,
   recordLoss,
